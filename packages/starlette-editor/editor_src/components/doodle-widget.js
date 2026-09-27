@@ -205,7 +205,15 @@ function _openOnPageDrawMode({ anchor, doodles, onDone }) {
   // The dashed border + faint tint mark the actual drawable boundary — with
   // no visual cue at all, there's no way to tell how far you can draw before
   // hitting the edge (found by trying to use this without it).
-  canvas.style.cssText = `position:absolute; inset:-${MARGIN}px; z-index:9997; cursor:crosshair; touch-action:none; border:2px dashed rgba(255,184,108,0.55); border-radius:8px; background:rgba(255,184,108,0.04); box-sizing:border-box;`
+  //
+  // width/height: 100% is load-bearing, not decorative — <canvas> is a
+  // replaced element (like <img>), and for replaced elements `position:
+  // absolute` + `inset` alone does NOT stretch it to fill that box the way
+  // it would a plain <div>. Without an explicit size it falls back to the
+  // canvas default intrinsic size (300x150) regardless of inset (found by
+  // logging the actual computed rect — it was 300x150 + the border, not the
+  // anchor + MARGIN at all).
+  canvas.style.cssText = `position:absolute; inset:-${MARGIN}px; width:100%; height:100%; z-index:9997; cursor:crosshair; touch-action:none; border:2px dashed rgba(255,184,108,0.55); border-radius:8px; background:rgba(255,184,108,0.04); box-sizing:border-box;`
   anchor.appendChild(canvas)
 
   const canvasRect = canvas.getBoundingClientRect()
