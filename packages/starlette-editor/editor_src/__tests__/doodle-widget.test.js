@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createDoodleWidget, pointsToPathData } from '../components/doodle-widget.js'
+import { createDoodleWidget, pointsToPathData, boundingBoxOf, strokesToDoodle } from '../components/doodle-widget.js'
 
 describe('pointsToPathData', () => {
   it('returns empty string for no points', () => {
@@ -159,5 +159,157 @@ describe('createDoodleWidget', () => {
 
     expect(onSave).not.toHaveBeenCalled()
     expect(container.querySelector('.__doodle-canvas-wrap')).toBeNull()
+  })
+})
+
+describe('boundingBoxOf', () => {
+  it('spans every point across every stroke', () => {
+    const box = boundingBoxOf([
+      [{ x: 10, y: 20 }, { x: 30, y: 5 }],
+      [{ x: 0, y: 50 }, { x: 40, y: 15 }],
+    ])
+    expect(box).toEqual({ minX: 0, minY: 5, maxX: 40, maxY: 50, width: 40, height: 45 })
+  })
+
+  it('collapses to a point for a single-point stroke', () => {
+    const box = boundingBoxOf([[{ x: 7, y: 7 }]])
+    expect(box).toEqual({ minX: 7, minY: 7, maxX: 7, maxY: 7, width: 0, height: 0 })
+  })
+})
+
+describe('strokesToDoodle', () => {
+  const anchorRect = { width: 400, height: 200 }
+
+  it('computes placement as a percentage of the anchor, from where the stroke was actually drawn', () => {
+    // Canvas is anchor + 70px margin on each side (MARGIN in the module).
+    // A stroke drawn at canvas (70, 70) sits exactly at the anchor's own
+    // top-left corner (0%, 0%) once the margin is subtracted back out.
+    const doodle = strokesToDoodle([[{ x: 70, y: 70 }, { x: 90, y: 70 }]], anchorRect)
+    // EDGE_PAD (4px) shifts the origin slightly before the margin subtraction.
+    expect(doodle.placement.base.mode).toBe('absolute')
+    expect(doodle.placement.base.top.unit).toBe('%')
+    expect(doodle.placement.base.left.unit).toBe('%')
+    // (70 - 4 - 70) / 400 * 100 = -1%, (70 - 4 - 70) / 200 * 100 = -2%
+    expect(doodle.placement.base.left.value).toBeCloseTo(-1, 5)
+    expect(doodle.placement.base.top.value).toBeCloseTo(-2, 5)
+  })
+
+  it('produces a viewbox tightly cropped to the drawn strokes, not the whole canvas', () => {
+    const doodle = strokesToDoodle([[{ x: 100, y: 100 }, { x: 120, y: 110 }]], anchorRect)
+    // width 20 + height 10, padded by EDGE_PAD (4px) on each side.
+    expect(doodle.viewbox).toBe('0 0 28 18')
+  })
+
+  it('rebases path_data into the cropped viewbox’s own coordinate space', () => {
+    const doodle = strokesToDoodle([[{ x: 100, y: 100 }, { x: 120, y: 100 }]], anchorRect)
+    // origin = (100 - 4, 100 - 4) = (96, 96) — first point rebases to (4, 4).
+    expect(doodle.path_data.startsWith('M 4 4')).toBe(true)
+  })
+
+  it('gives every doodle a unique id', () => {
+    const a = strokesToDoodle([[{ x: 0, y: 0 }, { x: 1, y: 1 }]], anchorRect)
+    const b = strokesToDoodle([[{ x: 0, y: 0 }, { x: 1, y: 1 }]], anchorRect)
+    expect(a.id).not.toBe(b.id)
+  })
+})
+
+describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', () => {
+  let container, anchor, handleEl, onSave
+
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    // Mirrors DoodleOverlay's real structure: the field marker (what
+    // edit-mode.js passes as ctx.anchorEl) is a direct child of the CSS
+    // anchor — its parentElement, not its offsetParent (see the comment on
+    // the "+ Draw new doodle" handler in the module under test for why).
+    anchor = document.createElement('article')
+    handleEl = document.createElement('div')
+    anchor.appendChild(handleEl)
+    document.body.appendChild(anchor)
+
+    onSave = vi.fn()
+    stubCanvasContext()
+
+    // jsdom doesn't compute real layout — stub rects so the placement math
+    // has something real to work with. Anchor: 400x200 at (100, 50). The
+    // on-page canvas is a child of the anchor with `inset: -70px`, so it's
+    // asserted separately below at the geometry that CSS would produce.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this === anchor) return { left: 100, top: 50, width: 400, height: 200, right: 500, bottom: 250 }
+      if (this.classList?.contains('__doodle-onpage-canvas')) {
+        return { left: 30, top: -20, width: 540, height: 340, right: 570, bottom: 320 }
+      }
+      return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 }
+    })
+  })
+
+  it('closes the floating panel and draws on the anchor itself, not in the container', () => {
+    const close = vi.fn()
+    createDoodleWidget([], { container, anchorEl: handleEl, close, onSave })
+
+    const drawBtn = [...container.querySelectorAll('button')].find(b => b.textContent.includes('Draw'))
+    drawBtn.click()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(container.querySelector('.__doodle-onpage-canvas')).toBeNull()
+    expect(anchor.querySelector('.__doodle-onpage-canvas')).not.toBeNull()
+  })
+
+  it('mounts the toolbar fixed to the viewport, not inside the anchor or the panel', () => {
+    createDoodleWidget([], { container, anchorEl: handleEl, close: vi.fn(), onSave })
+    container.querySelector('button').click()
+
+    const toolbar = document.querySelector('.__doodle-onpage-toolbar')
+    expect(toolbar).not.toBeNull()
+    expect(toolbar.parentElement).toBe(document.body)
+    expect(getComputedStyle(toolbar).position).toBe('fixed')
+  })
+
+  it('drawing and saving computes a real placement from where you drew, and calls onSave', () => {
+    createDoodleWidget([], { container, anchorEl: handleEl, close: vi.fn(), onSave })
+    container.querySelector('button').click()
+
+    const canvas = anchor.querySelector('.__doodle-onpage-canvas')
+    draw(canvas, [{ x: 100, y: 100 }, { x: 150, y: 120 }])
+
+    const saveBtn = [...document.querySelectorAll('.__doodle-onpage-toolbar button')].find(b => b.textContent === 'Save doodle')
+    saveBtn.click()
+
+    expect(onSave).toHaveBeenCalledOnce()
+    const saved = onSave.mock.calls[0][0]
+    expect(saved).toHaveLength(1)
+    // Not the old fixed placeholder (20%, 20%) — a real computed position.
+    expect(saved[0].placement.base.top.value).not.toBe(20)
+    expect(saved[0].placement.base.left.value).not.toBe(20)
+    // Canvas and toolbar are cleaned up after a save.
+    expect(document.querySelector('.__doodle-onpage-canvas')).toBeNull()
+    expect(document.querySelector('.__doodle-onpage-toolbar')).toBeNull()
+  })
+
+  it('Cancel tears down the canvas and toolbar without calling onSave', () => {
+    createDoodleWidget([], { container, anchorEl: handleEl, close: vi.fn(), onSave })
+    container.querySelector('button').click()
+
+    const canvas = anchor.querySelector('.__doodle-onpage-canvas')
+    draw(canvas, [{ x: 10, y: 10 }, { x: 20, y: 20 }])
+
+    const cancelBtn = [...document.querySelectorAll('.__doodle-onpage-toolbar button')].find(b => b.textContent === 'Cancel')
+    cancelBtn.click()
+
+    expect(onSave).not.toHaveBeenCalled()
+    expect(document.querySelector('.__doodle-onpage-canvas')).toBeNull()
+    expect(document.querySelector('.__doodle-onpage-toolbar')).toBeNull()
+  })
+
+  it('falls back to the panel canvas when anchorEl has no parentElement (no live page context)', () => {
+    const detachedHandle = document.createElement('div') // never appended — no parentElement
+    createDoodleWidget([], { container, anchorEl: detachedHandle, close: vi.fn(), onSave })
+    container.querySelector('button').click()
+
+    expect(container.querySelector('.__doodle-canvas')).not.toBeNull()
+    expect(document.querySelector('.__doodle-onpage-canvas')).toBeNull()
   })
 })

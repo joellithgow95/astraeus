@@ -177,6 +177,7 @@ export async function activateField(el, { fieldName, fieldValue, docId, cmsBase,
         mode: 'overlay',
         container,
         anchorEl: el,
+        close,
         onSave: async (newValue) => {
           fieldValue = newValue
           close()
