@@ -46,8 +46,18 @@ export async function activateEditMode(element, { cmsBase, toolbar }) {
   const fieldEls = element.querySelectorAll('[data-cms-field]')
   for (const fieldEl of fieldEls) {
     const fieldName = fieldEl.dataset.cmsField
-    const fieldValue = body[fieldName]
-    if (fieldValue === undefined) continue
+    let fieldValue = body[fieldName]
+    if (fieldValue === undefined) {
+      // A field's key can be absent from a document's stored body — most
+      // often because the field type was added to the schema after this
+      // particular document was last saved (nothing backfills existing rows).
+      // Registry-dispatched field types are exactly the mechanism meant to
+      // support that: a plugin field type shouldn't require every existing
+      // document to be re-saved before it becomes editable. Untyped/legacy
+      // fields keep the original behavior — genuinely absent means skip.
+      if (!getFieldWidget(fieldEl.dataset.cmsFieldType)) continue
+      fieldValue = null
+    }
 
     // On a listing, the body is shown only as a truncated preview. Don't drop
     // the full editor into the card straight away — gate it behind an

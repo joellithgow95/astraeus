@@ -467,6 +467,57 @@ describe('activateField: registry dispatch takes precedence over value-shape gue
     )
   })
 
+  it('activates a registered field type even when absent from the document body — pre-existing content saved before the field type existed', async () => {
+    const factory = vi.fn()
+    registerFieldWidget('doodles', factory)
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      // No 'doodles' key at all — a real document saved before this field
+      // type was added to the schema; nothing backfills existing rows.
+      json: async () => ({ body: { title: 'Old post' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const card = document.createElement('div')
+    card.dataset.cmsId = 'doc-1'
+    const handle = document.createElement('div')
+    handle.dataset.cmsField = 'doodles'
+    handle.dataset.cmsFieldType = 'doodles'
+    card.appendChild(handle)
+    document.body.appendChild(card)
+
+    const { activateEditMode } = await import('../embed/edit-mode.js')
+    await activateEditMode(card, { cmsBase: 'https://cms.example.com', toolbar: { setState: vi.fn() } })
+
+    handle.click()
+
+    expect(factory).toHaveBeenCalledOnce()
+    const [value] = factory.mock.calls[0]
+    expect(value).toBeNull()
+  })
+
+  it('still skips a field with no registered widget when absent from the document body — unchanged legacy behavior', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ body: { title: 'Old post' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const card = document.createElement('div')
+    card.dataset.cmsId = 'doc-1'
+    const missingField = document.createElement('p')
+    missingField.dataset.cmsField = 'excerpt'
+    card.appendChild(missingField)
+    document.body.appendChild(card)
+
+    const { activateEditMode } = await import('../embed/edit-mode.js')
+    await activateEditMode(card, { cmsBase: 'https://cms.example.com', toolbar: { setState: vi.fn() } })
+
+    // Not activated: no contentEditable, no click handler wired up.
+    expect(missingField.contentEditable === 'inherit' || missingField.contentEditable === undefined).toBe(true)
+  })
+
   it('an array value with NO registered field_type still opens the tags editor unchanged', async () => {
     const el = document.createElement('div')
     document.body.appendChild(el)
