@@ -146,6 +146,53 @@ function _makeBtn(text, onClick, { subtle = false } = {}) {
   return btn
 }
 
+/**
+ * Mirrors DoodleOverlay.astro's declBlock() — necessarily duplicated, not
+ * shared, since one runs at Astro build time (TS) and this runs live in the
+ * browser (plain JS) patching an already-rendered page. Keep in sync by hand
+ * if placement's shape ever changes.
+ */
+function _declBlock(p) {
+  if (p.mode === 'static') return 'position: static;'
+  const parts = ['position: absolute;']
+  for (const axis of ['top', 'left', 'right', 'bottom', 'width']) {
+    const v = p[axis]
+    if (v) parts.push(`${axis}: ${v.value}${v.unit};`)
+  }
+  return parts.join(' ')
+}
+
+/**
+ * Keep the already-rendered `.doodle-overlay` (a sibling of the field
+ * marker, inside `anchor`) in sync with `doodles` right after a save or
+ * remove — without this, a change is only visible in the small edit panel
+ * until the page is rebuilt (publish, then reload), which is a worse
+ * experience than every other field type already gives (e.g. the image
+ * field patches its <img> src live the same way, no reload needed).
+ */
+function _syncLiveOverlay(anchor, doodles) {
+  const overlay = anchor?.querySelector('.doodle-overlay')
+  if (!overlay) return
+
+  overlay.innerHTML = ''
+  for (const d of doodles) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'doodle-overlay__item')
+    svg.setAttribute('data-doodle-id', d.id)
+    svg.setAttribute('viewBox', d.viewbox)
+    svg.style.cssText = `${_declBlock(d.placement.base)} z-index:${d.z_index ?? 1};`
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d.path_data)
+    path.setAttribute('stroke', d.stroke ?? 'currentColor')
+    path.setAttribute('stroke-width', String(d.stroke_width ?? 2))
+    path.setAttribute('fill', d.fill ?? 'none')
+    svg.appendChild(path)
+
+    overlay.appendChild(svg)
+  }
+}
+
 /** Wires shared pointer-draw behavior onto a canvas. Returns {strokes, redraw}. */
 function _wireDrawing(canvas) {
   const g = canvas.getContext('2d')
@@ -303,6 +350,8 @@ function _openPanelCanvasFallback({ root, doodles, onDone }) {
  */
 export function createDoodleWidget(value, ctx) {
   const doodles = Array.isArray(value) ? [...value] : []
+  const anchorCandidate = ctx.anchorEl?.parentElement
+  const anchor = anchorCandidate instanceof HTMLElement ? anchorCandidate : null
 
   const root = document.createElement('div')
   root.style.cssText = 'display:flex;flex-direction:column;gap:10px;min-width:240px;'
@@ -347,8 +396,7 @@ export function createDoodleWidget(value, ctx) {
       removeBtn.style.cssText = 'background:none;border:none;color:#6b7280;cursor:pointer;font-size:12px;padding:0;'
       removeBtn.addEventListener('click', () => {
         doodles.splice(i, 1)
-        renderList()
-        ctx.onSave([...doodles])
+        onDoodlesChanged()
       })
       row.appendChild(removeBtn)
 
@@ -356,22 +404,30 @@ export function createDoodleWidget(value, ctx) {
     })
   }
 
-  function onDoodleAdded() {
+  /** Called after every add/remove — keeps the panel list, the live
+   * on-page rendering, and the persisted draft all in sync with each other,
+   * in that order, every time. */
+  function onDoodlesChanged() {
     renderList()
+    _syncLiveOverlay(anchor, doodles)
     ctx.onSave([...doodles])
   }
 
   root.appendChild(_makeBtn('+ Draw new doodle', () => {
-    const anchor = ctx.anchorEl?.parentElement
-    if (anchor instanceof HTMLElement) {
+    if (anchor) {
       // The live page is the drawing surface — get the small panel out of
       // the way while you draw on the real content.
       ctx.close?.()
-      _openOnPageDrawMode({ anchor, doodles, onDone: onDoodleAdded })
+      _openOnPageDrawMode({ anchor, doodles, onDone: onDoodlesChanged })
     } else {
-      _openPanelCanvasFallback({ root, doodles, onDone: onDoodleAdded })
+      _openPanelCanvasFallback({ root, doodles, onDone: onDoodlesChanged })
     }
   }))
 
   renderList()
+  // The page's static render reflects whatever was published at build time
+  // — sync once up front too, so a pending draft doodle from an earlier
+  // session (saved but never published) is visible as soon as you open
+  // edit mode, not just after this session's own edits.
+  _syncLiveOverlay(anchor, doodles)
 }

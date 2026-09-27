@@ -214,7 +214,7 @@ describe('strokesToDoodle', () => {
 })
 
 describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', () => {
-  let container, anchor, handleEl, onSave
+  let container, anchor, handleEl, overlayEl, onSave
 
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -222,11 +222,15 @@ describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', 
     document.body.appendChild(container)
 
     // Mirrors DoodleOverlay's real structure: the field marker (what
-    // edit-mode.js passes as ctx.anchorEl) is a direct child of the CSS
-    // anchor — its parentElement, not its offsetParent (see the comment on
-    // the "+ Draw new doodle" handler in the module under test for why).
+    // edit-mode.js passes as ctx.anchorEl) and the decorative .doodle-overlay
+    // are both direct children of the CSS anchor — the marker's
+    // parentElement, not its offsetParent (see the comment on the "+ Draw
+    // new doodle" handler in the module under test for why).
     anchor = document.createElement('article')
     handleEl = document.createElement('div')
+    overlayEl = document.createElement('div')
+    overlayEl.className = 'doodle-overlay'
+    anchor.appendChild(overlayEl)
     anchor.appendChild(handleEl)
     document.body.appendChild(anchor)
 
@@ -301,6 +305,47 @@ describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', 
     // Canvas and toolbar are cleaned up after a save.
     expect(document.querySelector('.__doodle-onpage-canvas')).toBeNull()
     expect(document.querySelector('.__doodle-onpage-toolbar')).toBeNull()
+  })
+
+  it('renders the new doodle into the live .doodle-overlay immediately, without waiting for publish/reload', () => {
+    createDoodleWidget([], { container, anchorEl: handleEl, close: vi.fn(), onSave })
+    expect(overlayEl.querySelectorAll('.doodle-overlay__item')).toHaveLength(0)
+
+    container.querySelector('button').click()
+    const canvas = anchor.querySelector('.__doodle-onpage-canvas')
+    draw(canvas, [{ x: 100, y: 100 }, { x: 150, y: 120 }])
+    ;[...document.querySelectorAll('.__doodle-onpage-toolbar button')].find(b => b.textContent === 'Save doodle').click()
+
+    const rendered = overlayEl.querySelectorAll('.doodle-overlay__item')
+    expect(rendered).toHaveLength(1)
+    const saved = onSave.mock.calls[0][0][0]
+    expect(rendered[0].getAttribute('data-doodle-id')).toBe(saved.id)
+    expect(rendered[0].getAttribute('viewBox')).toBe(saved.viewbox)
+    expect(rendered[0].querySelector('path').getAttribute('d')).toBe(saved.path_data)
+    expect(rendered[0].style.position).toBe('absolute')
+  })
+
+  it('removes a doodle from the live overlay immediately when removed from the list', () => {
+    const existing = [{ id: 'dd_1', path_data: 'M0 0 L1 1', viewbox: '0 0 20 20', placement: { base: { mode: 'absolute', top: { value: 10, unit: '%' }, left: { value: 10, unit: '%' } } } }]
+    createDoodleWidget(existing, { container, anchorEl: handleEl, close: vi.fn(), onSave })
+
+    // Initial sync (pending-draft case) already rendered it on widget creation.
+    expect(overlayEl.querySelectorAll('.doodle-overlay__item')).toHaveLength(1)
+
+    container.querySelector('.__doodle-remove').click()
+
+    expect(overlayEl.querySelectorAll('.doodle-overlay__item')).toHaveLength(0)
+  })
+
+  it('syncs the live overlay on widget creation, before any edit — a pending draft doodle from an earlier session is visible immediately', () => {
+    const existing = [{ id: 'dd_pending', path_data: 'M0 0 L1 1', viewbox: '0 0 20 20', placement: { base: { mode: 'absolute', top: { value: 5, unit: '%' }, left: { value: 5, unit: '%' } } } }]
+    createDoodleWidget(existing, { container, anchorEl: handleEl, close: vi.fn(), onSave })
+
+    const rendered = overlayEl.querySelectorAll('.doodle-overlay__item')
+    expect(rendered).toHaveLength(1)
+    expect(rendered[0].getAttribute('data-doodle-id')).toBe('dd_pending')
+    // Sync-on-create must never itself call onSave — nothing changed yet.
+    expect(onSave).not.toHaveBeenCalled()
   })
 
   it('Cancel tears down the canvas and toolbar without calling onSave', () => {
