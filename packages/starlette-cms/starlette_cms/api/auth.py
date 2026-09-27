@@ -162,15 +162,21 @@ def make_auth_routes(cms: CMS) -> list[Route]:
             return RedirectResponse(error_url, status_code=302)
 
         # Valid credentials — issue session cookie.
-        # On localhost: SameSite=None (no Secure) so cross-origin fetches from the
-        # Astro dev server (different port) can send the cookie. On prod: Lax+Secure.
+        # SameSite=Lax works everywhere this needs to cross an origin boundary:
+        # prod's joellithgow.com/cms.joellithgow.com are same-site subdomains,
+        # and local dev's localhost:4322/localhost:8001 are same-site too — the
+        # "site" comparison ignores port, only scheme+hostname matter, and both
+        # are plain "localhost". SameSite=None (the previous local-dev choice)
+        # requires Secure, which browsers enforce unconditionally regardless of
+        # whether the traffic is actually cross-site — and Secure cookies are
+        # never sent back over plain http, so that combination never actually
+        # worked; it silently dropped the cookie in real browsers.
         is_localhost = request.url.hostname in ("localhost", "127.0.0.1", "::1")
         secure_flag = "" if is_localhost else "Secure; "
-        samesite = "None" if is_localhost else "Lax"
         token = generate_session_token(username, cms.session_secret)
         cookie = (
             f"{_SESSION_COOKIE}={token}; "
-            f"HttpOnly; {secure_flag}SameSite={samesite}; "
+            f"HttpOnly; {secure_flag}SameSite=Lax; "
             f"Max-Age={_COOKIE_MAX_AGE}; Path=/"
         )
 
@@ -191,10 +197,9 @@ def make_auth_routes(cms: CMS) -> list[Route]:
     async def logout(request: Request) -> Response:
         is_localhost = request.url.hostname in ("localhost", "127.0.0.1", "::1")
         secure_flag = "" if is_localhost else "Secure; "
-        samesite = "None" if is_localhost else "Lax"
         clear_cookie = (
             f"{_SESSION_COOKIE}=; "
-            f"HttpOnly; {secure_flag}SameSite={samesite}; "
+            f"HttpOnly; {secure_flag}SameSite=Lax; "
             f"Max-Age=0; Path=/"
         )
         response = RedirectResponse("/api/auth/login", status_code=302)
