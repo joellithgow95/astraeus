@@ -202,7 +202,10 @@ function _openOnPageDrawMode({ anchor, doodles, onDone }) {
 
   const canvas = document.createElement('canvas')
   canvas.className = '__doodle-onpage-canvas'
-  canvas.style.cssText = `position:absolute; inset:-${MARGIN}px; z-index:9997; cursor:crosshair; touch-action:none;`
+  // The dashed border + faint tint mark the actual drawable boundary — with
+  // no visual cue at all, there's no way to tell how far you can draw before
+  // hitting the edge (found by trying to use this without it).
+  canvas.style.cssText = `position:absolute; inset:-${MARGIN}px; z-index:9997; cursor:crosshair; touch-action:none; border:2px dashed rgba(255,184,108,0.55); border-radius:8px; background:rgba(255,184,108,0.04); box-sizing:border-box;`
   anchor.appendChild(canvas)
 
   const canvasRect = canvas.getBoundingClientRect()
