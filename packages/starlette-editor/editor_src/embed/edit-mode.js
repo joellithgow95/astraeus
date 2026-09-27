@@ -330,6 +330,12 @@ function _addEditAffordance(el) {
   el.style.outline = '1px dashed rgba(37, 99, 235, 0.5)'
   el.style.cursor = 'pointer'
   el.title = 'Click to edit'
+  // A field's own render CSS may set pointer-events: none for its unactivated,
+  // purely-decorative display (e.g. a doodle overlay, so it never blocks
+  // clicks on real content beneath it) — activation always needs to override
+  // that on this element specifically, or the click that's supposed to open
+  // its editor can never reach it in the first place.
+  el.style.pointerEvents = 'auto'
 }
 
 // ────────────────────────────────────────────────────────────────────────────

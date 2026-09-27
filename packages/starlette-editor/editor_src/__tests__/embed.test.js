@@ -412,6 +412,29 @@ describe('activateField: registry dispatch takes precedence over value-shape gue
     expect(document.querySelector('.__cms-tags-panel')).toBeNull()
   })
 
+  it('re-enables pointer events on activation, for fields whose static render CSS is pointer-events: none', async () => {
+    // A doodle overlay is pointer-events: none in its normal decorative
+    // display (so it never blocks clicks on real content beneath it) — the
+    // one activated for editing must override that, or the click meant to
+    // open its editor can never reach it at all.
+    registerFieldWidget('doodles', vi.fn())
+
+    const el = document.createElement('div')
+    el.dataset.cmsFieldType = 'doodles'
+    el.style.pointerEvents = 'none'
+    document.body.appendChild(el)
+
+    await activateField(el, {
+      fieldName: 'doodles',
+      fieldValue: [],
+      docId: 'doc-1',
+      cmsBase: 'https://cms.example.com',
+      toolbar: { setState: vi.fn() },
+    })
+
+    expect(el.style.pointerEvents).toBe('auto')
+  })
+
   it('onSave from the registered widget PATCHes the field and closes the panel', async () => {
     let capturedOnSave
     registerFieldWidget('doodles', (_value, ctx) => {
