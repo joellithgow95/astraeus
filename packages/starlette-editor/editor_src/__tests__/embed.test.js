@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { registerFieldWidget, _resetFieldWidgetsForTests } from '../field-widgets.js'
 
 // ---------------------------------------------------------------------------
 // cmsBase derivation
@@ -360,6 +361,105 @@ describe('activateField field-type detection', async () => {
 
     // Should be unmodified — contentEditable not set (jsdom returns undefined or "inherit")
     expect(el.contentEditable === 'inherit' || el.contentEditable === undefined).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Registry-dispatched field types (ADR 020) — the collision this exists to
+// prevent: an array-shaped value with a registered field_type must never
+// fall into case 4's tags-editor guess.
+// ---------------------------------------------------------------------------
+
+describe('activateField: registry dispatch takes precedence over value-shape guessing', async () => {
+  const { activateField } = await import('../embed/edit-mode.js')
+
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    _resetFieldWidgetsForTests()
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    _resetFieldWidgetsForTests()
+    vi.restoreAllMocks()
+  })
+
+  it('an array value with a registered field_type is handed to the registered widget, not the tags editor', async () => {
+    const factory = vi.fn()
+    registerFieldWidget('doodles', factory)
+
+    const el = document.createElement('div')
+    el.dataset.cmsFieldType = 'doodles'
+    document.body.appendChild(el)
+    const toolbar = { setState: vi.fn() }
+
+    await activateField(el, {
+      fieldName: 'doodles',
+      fieldValue: [{ id: 'dd_1', path_data: 'M0 0' }],
+      docId: 'doc-1',
+      cmsBase: 'https://cms.example.com',
+      toolbar,
+    })
+
+    el.click()
+
+    expect(factory).toHaveBeenCalledOnce()
+    const [value, ctx] = factory.mock.calls[0]
+    expect(value).toEqual([{ id: 'dd_1', path_data: 'M0 0' }])
+    expect(ctx.mode).toBe('overlay')
+    expect(typeof ctx.onSave).toBe('function')
+    // Did NOT open the tags panel.
+    expect(document.querySelector('.__cms-tags-panel')).toBeNull()
+  })
+
+  it('onSave from the registered widget PATCHes the field and closes the panel', async () => {
+    let capturedOnSave
+    registerFieldWidget('doodles', (_value, ctx) => {
+      capturedOnSave = ctx.onSave
+    })
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, headers: new Headers() })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const el = document.createElement('div')
+    el.dataset.cmsFieldType = 'doodles'
+    document.body.appendChild(el)
+
+    await activateField(el, {
+      fieldName: 'doodles',
+      fieldValue: [],
+      docId: 'doc-1',
+      cmsBase: 'https://cms.example.com',
+      toolbar: { setState: vi.fn() },
+    })
+    el.click()
+
+    await capturedOnSave([{ id: 'dd_2', path_data: 'M1 1' }])
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://cms.example.com/api/documents/doc-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ body: { doodles: [{ id: 'dd_2', path_data: 'M1 1' }] } }),
+      }),
+    )
+  })
+
+  it('an array value with NO registered field_type still opens the tags editor unchanged', async () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const toolbar = { setState: vi.fn() }
+
+    await activateField(el, {
+      fieldName: 'tags',
+      fieldValue: ['a', 'b'],
+      docId: 'doc-1',
+      cmsBase: 'https://cms.example.com',
+      toolbar,
+    })
+
+    el.click()
+
+    expect(document.querySelector('.__cms-tags-panel')).not.toBeNull()
   })
 })
 

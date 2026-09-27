@@ -3,6 +3,8 @@
  * Fetches the draft body, replaces static content with live editable fields.
  */
 import { getActiveChangesetId, setActiveChangesetId } from '../changeset-store.js'
+import { getFieldWidget } from '../field-widgets.js'
+import { openFloatingPanel } from '../components/floating-panel.js'
 
 let _navSuppressed = false
 
@@ -148,6 +150,34 @@ function attachCollapsibleField(preview, { fieldName, fieldValue, docId, cmsBase
 
 export async function activateField(el, { fieldName, fieldValue, docId, cmsBase, toolbar }) {
   const tag = el.tagName.toLowerCase()
+
+  // ── 0. Registry-dispatched field types (ADR 020) ────────────────────────────
+  // An explicit data-cms-field-type wins over every value-shape guess below —
+  // this is what lets a field type whose value happens to be e.g. an array
+  // (like doodles) avoid colliding with case 4's tags-editor guess. Nothing
+  // built-in is registered here; only plugin-added field types (e.g. doodles)
+  // are, so every existing field keeps working via the chain below unchanged.
+  const widget = getFieldWidget(el.dataset.cmsFieldType)
+  if (widget) {
+    _addEditAffordance(el)
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const { container, close } = openFloatingPanel(el, { className: '__cms-field-panel' })
+      widget(fieldValue, {
+        mode: 'overlay',
+        container,
+        anchorEl: el,
+        onSave: async (newValue) => {
+          fieldValue = newValue
+          close()
+          toolbar.setState('saving')
+          await patchField(cmsBase, docId, fieldName, newValue, toolbar)
+          toolbar.setState('editing')
+        },
+      })
+    })
+    return
+  }
 
   // ── 1. Rich text fields (ProseMirror JSON doc) ──────────────────────────────
   if (typeof fieldValue === 'object' && fieldValue !== null && fieldValue.type === 'doc') {
@@ -378,30 +408,8 @@ function _openMarkdownModal(currentValue, onSave) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function _openTagsEditor(anchorEl, currentTags, onSave) {
-  // Close any existing tags panel
-  document.querySelector('.__cms-tags-panel')?.remove()
-
   const tags = [...currentTags]
-  const rect = anchorEl.getBoundingClientRect()
-
-  const panel = document.createElement('div')
-  panel.className = '__cms-tags-panel'
-  Object.assign(panel.style, {
-    position: 'fixed',
-    top: `${rect.bottom + window.scrollY + 6}px`,
-    left: `${rect.left + window.scrollX}px`,
-    zIndex: '99999',
-    background: '#fff',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    padding: '12px',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
-    minWidth: '280px',
-    maxWidth: '420px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  })
+  const { container: panel, close } = openFloatingPanel(anchorEl, { className: '__cms-tags-panel' })
 
   function render() {
     panel.innerHTML = ''
@@ -444,7 +452,6 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { addBtn.click(); e.preventDefault() }
-      if (e.key === 'Escape') { panel.remove() }
     })
 
     inputRow.appendChild(input)
@@ -454,12 +461,12 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
     const btnRow = document.createElement('div')
     Object.assign(btnRow.style, { display: 'flex', gap: '6px', justifyContent: 'flex-end', borderTop: '1px solid #f3f4f6', paddingTop: '8px' })
 
-    const cancelBtn = _makeBtn('Cancel', '#6b7280', () => panel.remove())
+    const cancelBtn = _makeBtn('Cancel', '#6b7280', () => close())
     cancelBtn.style.padding = '4px 10px'
     cancelBtn.style.fontSize = '13px'
 
     const saveBtn = _makeBtn('Save', '#2563eb', async () => {
-      panel.remove()
+      close()
       await onSave([...tags])
     })
     saveBtn.style.padding = '4px 10px'
@@ -473,17 +480,6 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
   }
 
   render()
-  document.body.appendChild(panel)
-
-  // Click outside closes and discards
-  function onOutsideClick(e) {
-    if (!panel.contains(e.target) && e.target !== anchorEl) {
-      panel.remove()
-      document.removeEventListener('click', onOutsideClick, true)
-    }
-  }
-  // Defer listener so the opening click doesn't immediately close it
-  setTimeout(() => document.addEventListener('click', onOutsideClick, true), 0)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
