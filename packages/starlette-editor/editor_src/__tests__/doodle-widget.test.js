@@ -258,13 +258,18 @@ describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', 
     expect(anchor.querySelector('.__doodle-onpage-canvas')).not.toBeNull()
   })
 
-  it('sizes the canvas via explicit width/height, not inset alone — <canvas> is a replaced element and silently keeps its 300x150 default otherwise', () => {
+  it('sizes the canvas in explicit px — CSS auto-sizing has two different footguns here: <canvas> is a replaced element (ignores inset, keeps its 300x150 default), and adding width/height:100% alongside inset over-constrains the box and cuts right/bottom short instead', () => {
     createDoodleWidget([], { container, anchorEl: handleEl, close: vi.fn(), onSave })
     container.querySelector('button').click()
 
     const canvas = anchor.querySelector('.__doodle-onpage-canvas')
-    expect(canvas.style.width).toBe('100%')
-    expect(canvas.style.height).toBe('100%')
+    // Mocked anchor rect is 400x200 (see beforeEach) — MARGIN (70) on every side.
+    expect(canvas.style.top).toBe('-70px')
+    expect(canvas.style.left).toBe('-70px')
+    expect(canvas.style.width).toBe('540px')
+    expect(canvas.style.height).toBe('340px')
+    expect(canvas.width).toBe(540)
+    expect(canvas.height).toBe(340)
   })
 
   it('mounts the toolbar fixed to the viewport, not inside the anchor or the panel', () => {

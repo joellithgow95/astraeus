@@ -200,25 +200,30 @@ function _wireDrawing(canvas) {
 function _openOnPageDrawMode({ anchor, doodles, onDone }) {
   if (getComputedStyle(anchor).position === 'static') anchor.style.position = 'relative'
 
+  // Compute the exact pixel box ourselves rather than lean on CSS auto-sizing
+  // — two different CSS footguns in a row here: (1) <canvas> is a replaced
+  // element (like <img>), so `position: absolute` + `inset` alone does NOT
+  // stretch it the way it would a plain <div> — it silently keeps its
+  // 300x150 intrinsic default; (2) adding explicit `width: 100%` alongside
+  // `inset` "fixes" that but over-constrains the box (left + width + right
+  // all definite), so the browser drops `right`/`bottom` and recomputes
+  // them — which cuts the canvas short on exactly those edges instead of
+  // extending MARGIN past them. Skip both by computing top/left/width/height
+  // in px directly; no auto-sizing involved at all.
+  const anchorRect = anchor.getBoundingClientRect()
+  const canvasW = Math.max(1, Math.round(anchorRect.width + MARGIN * 2))
+  const canvasH = Math.max(1, Math.round(anchorRect.height + MARGIN * 2))
+
   const canvas = document.createElement('canvas')
   canvas.className = '__doodle-onpage-canvas'
   // The dashed border + faint tint mark the actual drawable boundary — with
   // no visual cue at all, there's no way to tell how far you can draw before
   // hitting the edge (found by trying to use this without it).
-  //
-  // width/height: 100% is load-bearing, not decorative — <canvas> is a
-  // replaced element (like <img>), and for replaced elements `position:
-  // absolute` + `inset` alone does NOT stretch it to fill that box the way
-  // it would a plain <div>. Without an explicit size it falls back to the
-  // canvas default intrinsic size (300x150) regardless of inset (found by
-  // logging the actual computed rect — it was 300x150 + the border, not the
-  // anchor + MARGIN at all).
-  canvas.style.cssText = `position:absolute; inset:-${MARGIN}px; width:100%; height:100%; z-index:9997; cursor:crosshair; touch-action:none; border:2px dashed rgba(255,184,108,0.55); border-radius:8px; background:rgba(255,184,108,0.04); box-sizing:border-box;`
+  canvas.style.cssText = `position:absolute; top:-${MARGIN}px; left:-${MARGIN}px; width:${canvasW}px; height:${canvasH}px; z-index:9997; cursor:crosshair; touch-action:none; border:2px dashed rgba(255,184,108,0.55); border-radius:8px; background:rgba(255,184,108,0.04); box-sizing:border-box;`
   anchor.appendChild(canvas)
 
-  const canvasRect = canvas.getBoundingClientRect()
-  canvas.width = Math.max(1, Math.round(canvasRect.width))
-  canvas.height = Math.max(1, Math.round(canvasRect.height))
+  canvas.width = canvasW
+  canvas.height = canvasH
 
   const { state, redraw } = _wireDrawing(canvas)
 
