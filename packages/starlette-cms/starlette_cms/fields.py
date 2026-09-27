@@ -382,3 +382,24 @@ class DocumentRef(_BaseField):
         meta.update(self.ref_meta())
         meta["field_type"] = "document_ref"
         return meta
+
+
+@dataclass
+class DoodleField(_BaseField):
+    """
+    A list of freehand SVG doodles, each with a responsive placement spec.
+
+    Stored as a plain JSON array in the document body — same shape as
+    ``ListField(item_type=...)`` without the polymorphism, tagged with its
+    own field_type so the editor mounts a draw/place widget instead of the
+    generic block canvas. A document can have zero, one, or many doodles.
+
+    Example::
+
+        doodles: list = DoodleField(label="Doodles")
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "doodles"
+        return m

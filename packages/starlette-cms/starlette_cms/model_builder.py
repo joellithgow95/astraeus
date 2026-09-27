@@ -32,6 +32,7 @@ from starlette_cms.fields import (
     BlockField,
     BoolField,
     DateField,
+    DoodleField,
     DocumentRef,
     ImageField,
     JSONField,
@@ -216,6 +217,11 @@ def _make_field(
         if optional:
             return (links_type | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
         return (links_type, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, DoodleField):
+        if optional:
+            return (list[dict] | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (list[dict], Field(default_factory=list, json_schema_extra=extra))  # type: ignore[return-value]
 
     if isinstance(default, DocumentRef):
         if optional:

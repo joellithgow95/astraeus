@@ -8,6 +8,7 @@ from starlette_cms.fields import (
     BlockField,
     BoolField,
     DocumentRef,
+    DoodleField,
     ImageField,
     JSONField,
     ListField,
@@ -17,7 +18,6 @@ from starlette_cms.fields import (
     TextField,
     URLField,
 )
-
 
 # ---------------------------------------------------------------------------
 # ListField
@@ -129,3 +129,31 @@ def test_json_field_no_schema():
 def test_json_field_with_schema():
     meta = JSONField(schema={"type": "object"}).field_meta()
     assert meta["schema"] == {"type": "object"}
+
+
+# ---------------------------------------------------------------------------
+# DoodleField
+# ---------------------------------------------------------------------------
+
+
+def test_doodle_field_meta_has_field_type_doodles():
+    meta = DoodleField().field_meta()
+    assert meta["field_type"] == "doodles"
+
+
+def test_doodle_field_meta_passes_through_base_attrs():
+    meta = DoodleField(label="Doodles", help_text="Draw something").field_meta()
+    assert meta["label"] == "Doodles"
+    assert meta["help_text"] == "Draw something"
+
+
+def test_doodle_field_optional_defaults_to_none():
+    py_type, kwargs = DoodleField().to_pydantic(annotation=list, optional=True)
+    assert py_type == (list[dict] | None)
+    assert kwargs == {"default": None}
+
+
+def test_doodle_field_required_defaults_to_empty_list():
+    py_type, kwargs = DoodleField(required=True).to_pydantic(annotation=list, optional=False)
+    assert py_type == list[dict]
+    assert kwargs == {"default_factory": list}
