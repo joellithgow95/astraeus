@@ -753,6 +753,24 @@ def make_document_routes(cms: CMS) -> list[Route]:
                 span.set_status(StatusCode.ERROR, str(exc))
                 raise
 
+        # An editor may have this document open. Its collab session holds the
+        # rich-text field in memory and writes it back on every keystroke, so a
+        # field written here has to go through the session (as a step the editor
+        # receives), not around it. And while a session is open its version is
+        # the draft_version, or a session reloaded later would start out of step
+        # with the editors still connected.
+        session_version = await cms.collab_manager.apply_external_update(
+            doc_id,
+            {name: merged_body.get(name) for name in new_body_data},
+            source="patch",
+        )
+        if session_version is not None:
+            await (
+                CMSDocument.update({CMSDocument.draft_version: session_version})
+                .where(CMSDocument.id == doc_id)
+                .run()
+            )
+
         updated_rows = await CMSDocument.select().where(CMSDocument.id == doc_id).run()
         updated_row = updated_rows[0]
 
@@ -1021,6 +1039,22 @@ def make_document_routes(cms: CMS) -> list[Route]:
             except Exception as exc:
                 span.set_status(StatusCode.ERROR, str(exc))
                 raise
+
+        # An open editor still holds the discarded text and would write it back
+        # on its next keystroke. Hand it the published copy as a step instead;
+        # the draft itself stays discarded.
+        published = rows[0].get("body") or {}
+        if isinstance(published, str):
+            try:
+                published = json.loads(published)
+            except Exception:
+                published = {}
+        await cms.collab_manager.apply_external_update(
+            doc_id,
+            {a.field: published.get(a.field) for a in cms.collab_manager.authorities_for(doc_id)},
+            source="discard",
+            write_draft=False,
+        )
 
         updated_rows = await CMSDocument.select().where(CMSDocument.id == doc_id).run()
         return JSONResponse(_row_to_dict(updated_rows[0]))

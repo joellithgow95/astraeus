@@ -23,13 +23,17 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from starlette_cms.api.changesets import link_document_to_changeset
 from starlette_cms.auth import check_session_auth
-from starlette_cms.collab import collab_room
+from starlette_cms.collab import BASELINE_STEP_TYPE, SERVER_CLIENT_PREFIX, collab_room
 from starlette_cms.tables import CMSDocument
 
 if TYPE_CHECKING:
     from starlette_cms.app import CMS
 
 log = structlog.get_logger(__name__)
+
+
+#: ``client_id`` of the marker row a session writes before its first step.
+_BASELINE_CLIENT_ID = f"{SERVER_CLIENT_PREFIX}{BASELINE_STEP_TYPE}"
 
 
 def _is_editable_rich_text(cms: CMS, doc_type: str, field: str) -> bool:
@@ -263,6 +267,7 @@ def make_collab_routes(cms: CMS) -> list:
                     # Client sends its current doc state after applying steps locally
                     updated_doc = data.get("doc")
 
+                    persist_failed = False
                     async with authority._lock:
                         base_version = authority._version
                         result = authority.apply_steps(
@@ -273,25 +278,30 @@ def make_collab_routes(cms: CMS) -> list:
                             if updated_doc is not None or authority._schema is None
                             else None,
                         )
+                        if result.accepted:
+                            # Persist under the lock: two batches persisted out of
+                            # order would store the older document last.
+                            try:
+                                await authority._persist_steps(steps, step_client_id, base_version)
+                            except Exception:
+                                persist_failed = True
+                                # Don't drop the connection, but don't hide it either:
+                                # the in-memory version is now ahead of what is stored.
+                                log.exception(
+                                    "collab_persist_failed",
+                                    document_id=document_id,
+                                    field=field,
+                                    version=result.version,
+                                )
 
                     if result.accepted:
-                        # Persist asynchronously (fire-and-forget is fine here;
-                        # in-memory state is already updated)
-                        try:
-                            await authority._persist_steps(steps, step_client_id, base_version)
-                        except Exception:
-                            # Don't drop the connection, but don't hide it either: the
-                            # in-memory version is now ahead of what is stored.
-                            log.exception(
-                                "collab_persist_failed",
-                                document_id=document_id,
-                                field=field,
-                                version=result.version,
-                            )
+                        if persist_failed:
+                            # The editor shows this; it used to ignore it.
                             await websocket.send_json(
                                 {
                                     "type": "error",
                                     "code": "persist_failed",
+                                    "message": "Edits were accepted but could not be stored",
                                     "version": result.version,
                                 }
                             )
@@ -457,7 +467,10 @@ def make_collab_routes(cms: CMS) -> list:
                 CMSStep.version,
                 CMSStep.created_at,
             )
-            .where(CMSStep.document_id == document_id)
+            .where(
+                CMSStep.document_id == document_id,
+                CMSStep.client_id != _BASELINE_CLIENT_ID,
+            )
             .order_by(CMSStep.version, ascending=False)
             .limit(limit * 20)  # fetch extra for bucketing
         )
@@ -538,6 +551,10 @@ def make_collab_routes(cms: CMS) -> list:
         baseline here is the *published* body while steps apply to ``draft_body``;
         and because ``draft_version`` resets on publish without ``cms_steps`` being
         cleared, a version can match rows from several publish cycles at once.
+
+        Sessions now write a baseline row before their first step (returned in
+        ``baselines``), and rows come back in the order they were written, so
+        :mod:`starlette_cms.collab_replay` can rebuild a session exactly.
         """
         from starlette_cms.auth import require_auth
         from starlette_cms.tables import CMSDocument, CMSStep
@@ -566,24 +583,42 @@ def make_collab_routes(cms: CMS) -> list:
         baseline_body = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
 
         # Fetch steps up to (and including) the requested version
+        # In the order they were written: versions repeat after a publish or a
+        # discard resets draft_version, so ordering by version interleaves cycles.
         step_rows = (
             await CMSStep.select(CMSStep.version, CMSStep.step_data, CMSStep.client_id)
             .where(
                 CMSStep.document_id == document_id,
                 CMSStep.version <= target_version,
             )
-            .order_by(CMSStep.version, ascending=True)
+            .order_by(CMSStep._meta.primary_key, ascending=True)
             .run()
         )
 
         steps = []
+        versions: list[int] = []
+        client_ids: list[str] = []
+        baselines: list[dict] = []
         for row in step_rows:
             raw = row.get("step_data", "{}")
             try:
                 step_dict = json.loads(raw) if isinstance(raw, str) else raw
             except (json.JSONDecodeError, TypeError):
                 step_dict = {}
+            if isinstance(step_dict, dict) and step_dict.get("stepType") == BASELINE_STEP_TYPE:
+                # Where a session's steps start; not a step. See collab_replay.
+                baselines.append(
+                    {
+                        "index": len(steps),
+                        "version": row["version"],
+                        "field": step_dict.get("field"),
+                        "doc": step_dict.get("doc"),
+                    }
+                )
+                continue
             steps.append(step_dict)
+            versions.append(row["version"])
+            client_ids.append(row["client_id"])
 
         return JSONResponse(
             {
@@ -592,10 +627,16 @@ def make_collab_routes(cms: CMS) -> list:
                 "step_count": len(steps),
                 "baseline_body": baseline_body,
                 "steps": steps,
+                "versions": versions,
+                "client_ids": client_ids,
+                "baselines": baselines,
                 "note": (
-                    "Step replay is performed client-side using the returned steps. "
-                    "Apply each step in order to baseline_body to reconstruct the "
-                    "document state at the requested version."
+                    "Steps are in the order they were written. Each entry of "
+                    "`baselines` is the document a session's steps start from "
+                    "(`index` into `steps`); apply the steps after it in order. "
+                    "baseline_body is the published body, which is only right for "
+                    "steps with no baseline before them and no write in between. "
+                    "starlette_cms.collab_replay does this and reports gaps."
                 ),
             }
         )
