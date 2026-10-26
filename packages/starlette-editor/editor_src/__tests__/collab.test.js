@@ -558,16 +558,18 @@ describe('CollabConnection reconnect resume', () => {
     conn.destroy()
   })
 
-  it('warns if the server never answers a catch-up request (a server that predates it)', async () => {
+  it('says so loudly if the server never answers a catch-up request (a server that predates it)', async () => {
     const { getVersion } = await import('prosemirror-collab')
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const toolbar = makeToolbar()
+    toolbar.setSaveError = vi.fn()
     const conn = new CollabConnection({
       view: makeMinimalView(),
       schema: {},
       documentId: 'doc-1',
       cmsBase: 'https://cms.example.com',
       initialVersion: 4,
-      toolbar: makeToolbar(),
+      toolbar,
       clientID: 'abc',
     })
     sendableSteps.mockReturnValue({ steps: [{ toJSON: () => ({ stepType: 'replace' }) }], version: 4 })
@@ -575,9 +577,11 @@ describe('CollabConnection reconnect resume', () => {
 
     conn._handleMessage({ type: 'init', version: 9, peers: [] })
     vi.advanceTimersByTime(4900)
-    expect(warn).not.toHaveBeenCalled()
+    expect(toolbar.setSaveError).not.toHaveBeenCalled()
     vi.advanceTimersByTime(200)
-    expect(warn).toHaveBeenCalledTimes(1)
+    // A console line was all this used to produce: the text was lost unseen.
+    expect(toolbar.setSaveError).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledTimes(1)
 
     sendableSteps.mockReturnValue(null)
     conn.destroy()
@@ -585,7 +589,7 @@ describe('CollabConnection reconnect resume', () => {
 
   it('does not warn when the catch-up reply arrives', async () => {
     const { getVersion } = await import('prosemirror-collab')
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
     const conn = new CollabConnection({
       view: makeMinimalView(),
       schema: {},
@@ -610,7 +614,7 @@ describe('CollabConnection reconnect resume', () => {
 
   it('warns and keeps the pending steps when the server cannot catch the client up', async () => {
     const { getVersion } = await import('prosemirror-collab')
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const toolbar = makeToolbar()
     toolbar.setSaveError = vi.fn()
     const conn = new CollabConnection({
@@ -626,7 +630,7 @@ describe('CollabConnection reconnect resume', () => {
 
     conn._handleMessage({ type: 'resync_required', version: 90, doc: null })
 
-    expect(warn).toHaveBeenCalled()
+    expect(error).toHaveBeenCalled()
     expect(toolbar.setSaveError).toHaveBeenCalled()
     expect(conn.ws.sent.filter(m => m.type === 'steps')).toHaveLength(0)
     conn.destroy()
@@ -650,6 +654,126 @@ describe('CollabConnection reconnect resume', () => {
     conn._handleMessage({ type: 'init', version: 7, peers: [] })
 
     expect(conn.ws.sent.filter(m => m.type === 'steps')).toHaveLength(0)
+    conn.destroy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Failures are loud and typed text survives them (2026-10-26)
+// ---------------------------------------------------------------------------
+
+describe('CollabConnection failure surfacing', () => {
+  function makeLoudToolbar() {
+    return { setState: vi.fn(), setSaveError: vi.fn(), clearSaveError: vi.fn(), setNotice: vi.fn() }
+  }
+
+  function makeConn(toolbar) {
+    return new CollabConnection({
+      view: makeMinimalView(),
+      schema: {},
+      documentId: 'doc-1',
+      field: 'body_markdown',
+      cmsBase: 'https://cms.example.com',
+      initialVersion: 0,
+      toolbar,
+      clientID: 'abc',
+    })
+  }
+
+  const pending = { steps: [{ toJSON: () => ({ stepType: 'replace' }) }], version: 0 }
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    sendableSteps.mockReturnValue(null)
+  })
+
+  it('shows a persist failure and keeps the text in localStorage', async () => {
+    const { rescueKey } = await import('../collab.js')
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+
+    conn._handleMessage({ type: 'error', code: 'persist_failed', message: 'disk full', version: 3 })
+
+    expect(toolbar.setSaveError).toHaveBeenCalledWith(expect.stringContaining('disk full'))
+    const saved = JSON.parse(localStorage.getItem(rescueKey('doc-1', 'body_markdown')))
+    expect(saved.doc).toEqual({ type: 'doc', content: [] })
+    conn.destroy()
+  })
+
+  it('shows a refused step instead of silently retrying it forever', () => {
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+
+    conn._handleMessage({ type: 'reject', version: 0, reason: 'step 0 failed: bad' })
+
+    expect(toolbar.setSaveError).toHaveBeenCalledWith(expect.stringContaining('step 0 failed'))
+    conn.destroy()
+  })
+
+  it('asks for the missed steps after a version reject instead of only waiting', async () => {
+    const { getVersion } = await import('prosemirror-collab')
+    getVersion.mockReturnValue(2)
+    const conn = makeConn(makeLoudToolbar())
+
+    conn._handleMessage({ type: 'reject', version: 5, reason: 'version' })
+
+    expect(conn.ws.sent).toContainEqual({ type: 'catch_up', version: 2 })
+    getVersion.mockReturnValue(0)
+    conn.destroy()
+  })
+
+  it('a reconnect does not clear a failure it cannot fix', () => {
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+    conn._handleMessage({ type: 'reject', version: 0, reason: 'step 0 failed: bad' })
+
+    conn.ws.onopen()
+
+    expect(toolbar.clearSaveError).not.toHaveBeenCalled()
+    conn.destroy()
+  })
+
+  it('clears the error and the rescued copy once every step is confirmed', async () => {
+    const { rescueKey } = await import('../collab.js')
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+    conn._handleMessage({ type: 'error', code: 'persist_failed', version: 1 })
+
+    conn._handleMessage({ type: 'steps', steps: [{ stepType: 'replace' }], clientIDs: ['abc'], version: 1 })
+
+    expect(toolbar.clearSaveError).toHaveBeenCalled()
+    expect(localStorage.getItem(rescueKey('doc-1', 'body_markdown'))).toBeNull()
+    conn.destroy()
+  })
+
+  it('tells the editor when a write from outside it was folded in', () => {
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+
+    conn._handleMessage({
+      type: 'steps', steps: [{ stepType: 'replace' }], clientIDs: ['server:patch'], version: 1, origin: 'patch',
+    })
+
+    expect(toolbar.setNotice).toHaveBeenCalledWith(expect.stringContaining('outside the editor'))
+    conn.destroy()
+  })
+
+  it('warns when the connection stays down with unsaved edits', () => {
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+    sendableSteps.mockReturnValue(pending)
+    conn._connect = vi.fn()  // the server stays unreachable
+
+    conn.ws.readyState = MockWebSocket.CLOSED
+    conn.ws.onclose({ code: 1006 })
+    expect(toolbar.setSaveError).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(4100)
+
+    expect(toolbar.setSaveError).toHaveBeenCalledWith(expect.stringContaining('Connection lost'))
     conn.destroy()
   })
 })

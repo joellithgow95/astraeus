@@ -22,16 +22,32 @@ import { docTitle } from '../utils.js'
 
 
 /**
+ * True while a rich-text field has typed steps the server has not confirmed.
+ *
+ * Those fields save over the collab socket, not through Save, so `isDirty`
+ * never covers them; switching documents used to drop them without a word.
+ *
+ * @returns {boolean}
+ */
+export function hasUnsavedBodyEdits() {
+  return Object.values(state.collabConnections || {})
+    .some(conn => conn?.hasUnconfirmedSteps?.());
+}
+
+/**
  * Prompt before an action that would discard unsaved edits.
  *
  * @returns {Promise<boolean>} true when it is safe to proceed
  */
 async function confirmDiscardIfDirty() {
-  if (!state.isDirty) return true;
+  const bodyPending = hasUnsavedBodyEdits();
+  if (!state.isDirty && !bodyPending) return true;
 
   const discarded = await showConfirm(
     'Discard unsaved changes?',
-    'This document has edits that have not been saved. Leaving now discards them.',
+    bodyPending
+      ? 'Some text you typed has not reached the server yet. Leaving now discards it.'
+      : 'This document has edits that have not been saved. Leaving now discards them.',
     'Discard',
   );
 
@@ -193,10 +209,15 @@ export async function saveDocument() {
 
   // Flush PM editor content to bodyFields before saving.
   // RichTextField fields with an active collab connection are already persisted via WS
-  // steps — skip them here so stale in-memory state doesn't overwrite the server doc.
+  // steps, so they must not be sent at all. Skipping the flush was not enough:
+  // formData still held the copy loaded when the document was opened, and Save
+  // sent that, overwriting every edit typed since (the 2026-10-26 data loss).
   for (const [name, view] of Object.entries(state.pmInstances)) {
     const fieldMeta = (state.schema?.[state.activeType]?.field_meta || {})[name] || {};
-    if (fieldMeta.field_type === 'rich_text' && state.collabConnections[name]) continue
+    if (fieldMeta.field_type === 'rich_text' && state.collabConnections[name]) {
+      delete bodyFields[name]
+      continue
+    }
     bodyFields[name] = fieldMeta.field_type === 'rich_text'
       ? view.state.doc.toJSON()
       : pmDocToMarkdown(view.state.doc);
