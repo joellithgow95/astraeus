@@ -34,6 +34,15 @@ log = structlog.get_logger(__name__)
 #: this has to take the server's copy instead of rebasing.
 MAX_STEP_LOG = 5000
 
+#: ``stepType`` of the marker row an authority writes to ``cms_step`` before its
+#: first step: the field and the document its steps start from. Without it the
+#: log cannot be replayed, because nothing records what the first step applies to.
+BASELINE_STEP_TYPE = "baseline"
+
+#: Client-id prefix for steps the server makes itself, such as a REST/MCP write
+#: folded into an open editing session.
+SERVER_CLIENT_PREFIX = "server:"
+
 
 def collab_room(document_id: str, field: str) -> str:
     """Key for one rich-text field's collab session: authority, connections, peers.
@@ -110,6 +119,11 @@ class CollabAuthority:
         # ``_log[i]`` took the document from version ``_log_base + i`` to ``+ 1``.
         self._log: list[tuple[dict, str]] = []
         self._log_base = version
+        # What the first step applies to, written once to ``cms_step`` as a
+        # baseline row so the persisted log can be replayed (see collab_replay).
+        self._origin_doc = field_doc
+        self._origin_version = version
+        self._baseline_written = False
 
     def steps_since(self, version: int) -> tuple[list[dict], list[str]] | None:
         """Accepted steps after *version*, with one client ID per step.
@@ -201,18 +215,84 @@ class CollabAuthority:
             mismatch=mismatch,
         )
 
-    async def _persist_steps(self, steps: list[dict], client_id: str, base_version: int) -> None:
+    def replacement_step(self, new_doc: dict | None) -> dict | None:
+        """One ``replace`` step that turns this authority's document into *new_doc*.
+
+        Used to fold a write that did not come through the editor (REST, MCP, a
+        discarded draft) into the session, so open editors receive it as an
+        ordinary step and rebase their pending edits over it. The step covers
+        only the range that differs, so pending edits elsewhere rebase cleanly.
+
+        :returns: ``None`` when the documents are already equal.
+        :raises ImportError: without the ``collab-verify`` extra.
+        """
+        from prosemirror.model import Slice
+        from prosemirror.transform import ReplaceStep
+
+        from starlette_cms.collab_verify import EMPTY_DOC, editor_schema
+
+        schema = self._schema or editor_schema()
+        old = schema.node_from_json(self._doc or EMPTY_DOC)
+        new = schema.node_from_json(new_doc or EMPTY_DOC)
+        start = old.content.find_diff_start(new.content)
+        if start is None:
+            return None
+        end = old.content.find_diff_end(new.content)
+        if end is not None:
+            end_a, end_b = end["a"], end["b"]
+            overlap = start - min(end_a, end_b)
+            if overlap > 0:
+                end_a += overlap
+                end_b += overlap
+            step = ReplaceStep(start, end_a, new.slice(start, end_b))
+            result = step.apply(old)
+            if not result.failed and result.doc is not None and result.doc.eq(new):
+                return dict(step.to_json())
+        # The narrow step did not fit the structure: replace everything.
+        whole = ReplaceStep(0, old.content.size, Slice(new.content, 0, 0))
+        return dict(whole.to_json())
+
+    async def _persist_steps(
+        self,
+        steps: list[dict],
+        client_id: str,
+        base_version: int,
+        *,
+        write_draft: bool = True,
+    ) -> None:
         """Persist accepted steps to the DB and update CMSDocument draft fields.
+
+        Call it while holding ``self._lock``, so two batches cannot store their
+        documents out of order.
 
         :param steps: The accepted step dicts.
         :param client_id: The accepting client's ID.
         :param base_version: The version number *before* these steps were applied
             (i.e. ``self._version - len(steps)`` at the time of the call).
+        :param write_draft: False to log the steps without writing the draft
+            (a discarded draft must stay discarded).
         """
         from starlette_cms.tables import CMSDocument, CMSStep
 
         now = datetime.now(UTC)
-        step_rows = [
+        step_rows = []
+        if not self._baseline_written:
+            step_rows.append(
+                CMSStep(
+                    document_id=self.document_id,
+                    client_id=f"{SERVER_CLIENT_PREFIX}{BASELINE_STEP_TYPE}",
+                    version=self._origin_version,
+                    step_data=json.dumps(
+                        {
+                            "stepType": BASELINE_STEP_TYPE,
+                            "field": self.field,
+                            "doc": self._origin_doc,
+                        }
+                    ),
+                    created_at=now,
+                )
+            )
+        step_rows += [
             CMSStep(
                 document_id=self.document_id,
                 client_id=client_id,
@@ -223,6 +303,9 @@ class CollabAuthority:
             for i, step in enumerate(steps)
         ]
         await CMSStep.insert(*step_rows).run()
+        self._baseline_written = True
+        if not write_draft:
+            return
 
         # Merge this field into the current body instead of replacing the body.
         # Re-read rather than caching the body, so concurrent PATCH edits to
@@ -303,6 +386,95 @@ class CollabManager:
             authority = CollabAuthority(document_id, field, field_doc, version, self.schema)
             self._authorities[room] = authority
             return authority
+
+    def authorities_for(self, document_id: str) -> list[CollabAuthority]:
+        """The in-memory authorities (one per edited field) of *document_id*."""
+        return [a for a in self._authorities.values() if a.document_id == document_id]
+
+    async def apply_external_update(
+        self,
+        document_id: str,
+        fields: dict[str, Any],
+        *,
+        source: str,
+        write_draft: bool = True,
+    ) -> int | None:
+        """Fold a write that bypassed the editor into the document's open sessions.
+
+        An authority holds its field in memory and writes it back on every
+        accepted step. A REST or MCP write to that field used to go straight to
+        the database: the session never heard of it, so the next keystroke wrote
+        the authority's copy back over it, and an editor that was told nothing
+        kept showing the old text. Instead each changed field becomes one
+        ``replace`` step, applied, logged and broadcast like any other, so open
+        editors rebase their pending edits over it and the step log stays
+        replayable.
+
+        :param fields: New values by field name. Fields no authority holds are
+            ignored; ``None`` means an empty document.
+        :param source: Who wrote it (``"patch"``, ``"discard"``), recorded as the
+            steps' client id ``server:<source>``.
+        :param write_draft: False to log and broadcast without writing the draft.
+        :returns: The highest version among the document's authorities, or
+            ``None`` if no session is open. The caller stores it as
+            ``draft_version`` so a reloaded authority starts where editors are.
+        """
+        authorities = self.authorities_for(document_id)
+        if not authorities:
+            return None
+        client_id = f"{SERVER_CLIENT_PREFIX}{source}"
+        for authority in authorities:
+            if authority.field not in fields:
+                continue
+            async with authority._lock:
+                try:
+                    step = authority.replacement_step(fields[authority.field])
+                except ImportError:
+                    # No prosemirror port to build a step with: forget the session
+                    # so the next connection loads the stored copy.
+                    log.warning(
+                        "collab_external_update_dropped_session",
+                        document_id=document_id,
+                        field=authority.field,
+                    )
+                    self._authorities.pop(collab_room(document_id, authority.field), None)
+                    continue
+                if step is None:
+                    continue
+                base_version = authority._version
+                result = authority.apply_steps(
+                    [step], client_id, base_version, fields[authority.field]
+                )
+                if not result.accepted:
+                    log.error(
+                        "collab_external_update_refused",
+                        document_id=document_id,
+                        field=authority.field,
+                        reason=result.reason,
+                    )
+                    continue
+                await authority._persist_steps(
+                    [step], client_id, base_version, write_draft=write_draft
+                )
+            log.info(
+                "collab_external_update_folded",
+                document_id=document_id,
+                field=authority.field,
+                source=source,
+                version=result.version,
+            )
+            await self.broadcast(
+                collab_room(document_id, authority.field),
+                {
+                    "type": "steps",
+                    "steps": result.steps,
+                    "clientIDs": result.client_ids,
+                    "version": result.version,
+                    "origin": source,
+                },
+            )
+        remaining = self.authorities_for(document_id)
+        return max((a._version for a in remaining), default=None)
 
     async def add_connection(self, document_id: str, ws: WebSocket) -> None:
         """Register a WebSocket connection for *document_id*."""
@@ -418,6 +590,8 @@ class CollabManager:
         """After *delay* seconds, evict the authority if no connections remain.
 
         Fire-and-forget: called from the finally block of the WebSocket handler.
+        *document_id* is the room key (:func:`collab_room`), which is what both
+        maps are keyed by.
         """
 
         async def _gc() -> None:

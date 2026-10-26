@@ -14,7 +14,13 @@
  *   Server → client steps:  { type: 'steps', steps: [...], clientIDs: [...], version }
  *   Server → client reject: { type: 'reject', version: <int>, reason?: string }
  *   Client → server catch-up: { type: 'catch_up', version } → { type: 'steps', ... } | { type: 'resync_required', doc, version }
+ *   Server → client error:  { type: 'error', code?, message? }  (e.g. persist_failed)
  *   Keep-alive:             { type: 'ping' } → { type: 'pong' }
+ *
+ * Failures are loud. Anything that leaves typed text unsaved calls the
+ * toolbar's setSaveError (the shell shows a persistent banner, the embed its
+ * error pill), and the field's text is kept in localStorage under
+ * `rescueKey(documentId, field)` until the server confirms every step.
  */
 import { collab, sendableSteps, receiveTransaction, getVersion } from 'prosemirror-collab'
 import { Step } from 'prosemirror-transform'
@@ -25,6 +31,37 @@ export { collab }
 
 /** How long to wait for a `catch_up` reply before warning that it was not served. */
 const CATCH_UP_TIMEOUT_MS = 5000
+
+/** How long the socket may stay down with unsaved edits before saying so. */
+const OFFLINE_WARNING_MS = 4000
+
+const RESCUE_PREFIX = 'astraeus:collab-rescue:'
+
+/**
+ * localStorage key holding a field's text while it has unconfirmed edits.
+ *
+ * @param {string} documentId
+ * @param {string} field
+ */
+export function rescueKey(documentId, field) {
+  return `${RESCUE_PREFIX}${documentId}:${field}`
+}
+
+/**
+ * The rescued copy of a field, if a session left one: `{ savedAt, version, doc, reason }`.
+ *
+ * @param {string} documentId
+ * @param {string} field
+ * @returns {object|null}
+ */
+export function loadRescue(documentId, field) {
+  try {
+    const raw = localStorage.getItem(rescueKey(documentId, field))
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
 
 export class CollabConnection {
   constructor({ view, schema, documentId, field, cmsBase, initialVersion, toolbar, clientID, apiKey = null }) {
@@ -43,6 +80,8 @@ export class CollabConnection {
     this._pingInterval = null
     this._peers = new Map()       // server client_id → peer info dict
     this._toolbar = null          // set via setToolbar() for peer-presence updates
+    this._hardError = null        // a failure a reconnect does not fix
+    this._offlineTimer = null
     this._connect()
   }
 
@@ -59,6 +98,55 @@ export class CollabConnection {
   /** Current collab version number from the local ProseMirror state. */
   currentVersion() {
     return getVersion(this.view?.state) ?? 0
+  }
+
+  /** True while typed steps have not been confirmed by the server. */
+  hasUnconfirmedSteps() {
+    try {
+      return Boolean(this.view && sendableSteps(this.view.state))
+    } catch {
+      return false
+    }
+  }
+
+  /** Keep the field's current text in localStorage until the server confirms it. */
+  _saveRescue(reason = null) {
+    try {
+      localStorage.setItem(rescueKey(this.documentId, this.field), JSON.stringify({
+        savedAt: new Date().toISOString(),
+        version: this.currentVersion(),
+        doc: this.currentDoc(),
+        reason,
+      }))
+    } catch { /* storage unavailable: the banner still shows */ }
+  }
+
+  _clearRescue() {
+    try {
+      localStorage.removeItem(rescueKey(this.documentId, this.field))
+    } catch { /* nothing to do */ }
+  }
+
+  /**
+   * Say, loudly and until resolved, that typed text is not saved.
+   *
+   * @param {string} message
+   * @param {{ hard?: boolean }} [opts]  hard: a reconnect does not fix it.
+   */
+  _fail(message, { hard = false } = {}) {
+    if (hard) this._hardError = message
+    this._saveRescue(message)
+    console.error(`[astraeus] ${message}`)
+    this.toolbar?.setSaveError?.(message)
+  }
+
+  /** Everything typed is confirmed: drop the rescued copy and any error. */
+  _allConfirmed() {
+    clearTimeout(this._offlineTimer)
+    this._offlineTimer = null
+    this._hardError = null
+    this._clearRescue()
+    this.toolbar?.clearSaveError?.()
   }
 
   /** Current selection range {from, to}, or null if no view. */
@@ -83,7 +171,10 @@ export class CollabConnection {
 
     this.ws.onopen = () => {
       this._reconnectDelay = 1000  // reset backoff on successful connect
-      this.toolbar?.clearSaveError?.()  // a prior connection error is resolved
+      clearTimeout(this._offlineTimer)
+      this._offlineTimer = null
+      // A prior connection error is resolved; a refusal or a lost catch-up is not.
+      if (!this._hardError) this.toolbar?.clearSaveError?.()
       // Start ping interval
       this._pingInterval = setInterval(() => {
         if (this.ws.readyState === WebSocket.OPEN) {
@@ -103,9 +194,20 @@ export class CollabConnection {
       if (this._destroyed) return
       // 4401 = auth rejected by the server. Reconnecting keeps failing, so stop
       // and surface it — the body-edit equivalent of a 401 on the PATCH path.
-      if (event.code === 4401) {
-        this.toolbar?.setSaveError?.('⚠ Body not saved — session expired, log in again')
+      if (event?.code === 4401) {
+        this._fail('⚠ Body not saved — session expired, log in again', { hard: true })
         return
+      }
+      if (this.hasUnconfirmedSteps() && !this._offlineTimer) {
+        this._saveRescue('offline')
+        this._offlineTimer = setTimeout(() => {
+          this._offlineTimer = null
+          if (this.hasUnconfirmedSteps() && this.ws?.readyState !== WebSocket.OPEN) {
+            this.toolbar?.setSaveError?.(
+              '⚠ Connection lost — your latest edits are not saved yet. Reconnecting… (kept in this browser)',
+            )
+          }
+        }, OFFLINE_WARNING_MS)
       }
       // Exponential backoff reconnect
       setTimeout(() => this._connect(), this._reconnectDelay)
@@ -120,6 +222,18 @@ export class CollabConnection {
   _handleMessage(msg) {
     if (msg.type === 'pong') {
       // Keep-alive response — no action needed
+      return
+    }
+
+    if (msg.type === 'error') {
+      // persist_failed: the server accepted the steps but could not store them.
+      // This used to be dropped on the floor.
+      const detail = msg.message || msg.code || 'unknown error'
+      this._fail(
+        `⚠ Body not saved — the server could not store your edits (${detail}). ` +
+        'Your text is kept in this browser; copy it out before reloading.',
+        { hard: true },
+      )
       return
     }
 
@@ -202,8 +316,17 @@ export class CollabConnection {
       // Show saved indicator after confirmation
       this.toolbar.setState('editing')
 
+      if (msg.origin || clientIDs.some(id => typeof id === 'string' && id.startsWith('server:'))) {
+        // A REST/MCP write (or a discarded draft) was folded into the session.
+        this.toolbar?.setNotice?.(
+          msg.origin === 'discard'
+            ? 'The draft was discarded elsewhere — this field now shows the published text.'
+            : 'This field was changed outside the editor — it now shows that change, with your edits on top.',
+        )
+      }
+
       // After receiving, check if we have pending local steps to send
-      this._sendPendingSteps()
+      if (this._sendPendingSteps() === 'none') this._allConfirmed()
     }
 
     else if (msg.type === 'resync_required') {
@@ -211,11 +334,11 @@ export class CollabConnection {
       // The server no longer has the steps between our version and its own, so
       // our pending steps cannot be rebased. Keep them and say so rather than
       // silently diverging or dropping them.
-      console.warn(
-        `[astraeus] Server version ${msg.version} is too far ahead of local edits ` +
-        `(based on version ${getVersion(this.view.state)}) to catch up. They have not been saved.`,
+      this._fail(
+        `⚠ Edits not saved — the server (version ${msg.version}) cannot merge edits based on ` +
+        `version ${getVersion(this.view.state)}. Copy your text out, then reload.`,
+        { hard: true },
       )
-      this.toolbar?.setSaveError?.('⚠ Edits made while offline could not be merged — copy them out, then reload')
     }
 
     else if (msg.type === 'reject') {
@@ -233,6 +356,21 @@ export class CollabConnection {
       // the version mismatch that dropped every body edit.
       this.version = msg.version
       this.toolbar.setState('saving')
+
+      if (msg.reason && msg.reason !== 'version') {
+        // Refused outright (a step the server cannot apply). Resending the same
+        // steps is refused again, so every later keystroke would be lost too.
+        this._fail(
+          `⚠ Body edits refused by the server and not saved (${msg.reason}). ` +
+          'Copy your text out, then reload.',
+          { hard: true },
+        )
+        return
+      }
+      // Don't just wait for a broadcast that may never come (a server that
+      // reloaded its session): ask for what we missed. A broadcast that does
+      // arrive answers it too.
+      if (this.view && msg.version > getVersion(this.view.state)) this._requestCatchUp()
     }
   }
 
@@ -278,9 +416,10 @@ export class CollabConnection {
     this.ws.send(JSON.stringify({ type: 'catch_up', version }))
     clearTimeout(this._catchUpTimer)
     this._catchUpTimer = setTimeout(() => {
-      console.warn(
-        `[astraeus] Asked the server for the steps after version ${version} and got no answer. ` +
-        'Local edits based on that version cannot be rebased and have not been saved.',
+      this._fail(
+        `⚠ Edits not saved — the server did not send the changes after version ${version}, ` +
+        'so your edits cannot be merged. Copy your text out, then reload.',
+        { hard: true },
       )
     }, CATCH_UP_TIMEOUT_MS)
   }
@@ -290,11 +429,16 @@ export class CollabConnection {
     this._catchUpTimer = null
   }
 
+  /**
+   * Send whatever the collab plugin has pending.
+   *
+   * @returns {'sent'|'none'|'offline'}
+   */
   _sendPendingSteps() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return 'offline'
 
     const sendable = sendableSteps(this.view.state)
-    if (!sendable) return
+    if (!sendable) return 'none'
 
     this.toolbar.setState('saving')
 
@@ -309,11 +453,21 @@ export class CollabConnection {
       // plain-text edits join the same one.
       activeChangesetId: getActiveChangesetId(),
     }))
+    return 'sent'
   }
 
   // Called by EditorView.dispatchTransaction after state update
   onTransaction() {
+    this._scheduleRescue()
     this._sendPendingSteps()
+  }
+
+  /** Debounced copy of the field to localStorage while edits are unconfirmed. */
+  _scheduleRescue() {
+    clearTimeout(this._rescueTimer)
+    this._rescueTimer = setTimeout(() => {
+      if (this.hasUnconfirmedSteps()) this._saveRescue(this._hardError)
+    }, 500)
   }
 
   destroy() {
@@ -321,6 +475,10 @@ export class CollabConnection {
     clearInterval(this._pingInterval)
     this._pingInterval = null
     this._catchUpAnswered()
+    clearTimeout(this._offlineTimer)
+    clearTimeout(this._rescueTimer)
+    // A destroyed connection with unconfirmed edits leaves its rescue copy behind.
+    if (this.hasUnconfirmedSteps()) this._saveRescue('closed with unsaved edits')
     if (this.ws) this.ws.close()
   }
 }
