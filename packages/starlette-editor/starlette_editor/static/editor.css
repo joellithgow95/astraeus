@@ -934,6 +934,266 @@ html, body {
   margin: var(--space-3) 0;
 }
 
+/* ---------- Tags (chip input) ---------- */
+.tags-input {
+  position: relative;
+}
+
+.tags-input__box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--target-min);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: text;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.tags-input__box:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.tags-input__chips {
+  display: contents;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px 2px 2px var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.tag-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  line-height: 1;
+}
+
+.tag-chip__remove:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tags-input__text {
+  flex: 1;
+  min-width: 8ch;
+  min-height: 28px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-input);
+  padding: 0 var(--space-1);
+}
+
+.tags-input__text::placeholder {
+  color: var(--text-muted);
+}
+
+.tags-input__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.tags-input__menu[hidden] {
+  display: none;
+}
+
+.tags-input__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 32px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.tags-input__option:hover,
+.tags-input__option.is-active {
+  background: var(--bg-hover);
+}
+
+.tags-input__option-note {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tags-input__option.is-new .tags-input__option-note {
+  color: var(--accent);
+}
+
+/* ---------- Links (card list) ---------- */
+.links-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.links-input__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.links-input__card {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.links-input__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.links-input__position {
+  min-width: 20px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.links-input__heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.links-input__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.links-input__host {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.links-input__controls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.links-input__remove:hover:not(:disabled) {
+  color: var(--red);
+}
+
+.links-input__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+}
+
+.links-input__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.links-input__cell--url,
+.links-input__cell--title,
+.links-input__cell--description {
+  grid-column: 1 / -1;
+}
+
+.links-input__label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  display: flex;
+  gap: var(--space-1);
+}
+
+.links-input__desc {
+  min-height: 56px;
+}
+
+.links-input__add {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.links-input__add .btn {
+  flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  .links-input__grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Room for the title; the URL is in the card just below. */
+  .links-input__host {
+    display: none;
+  }
+}
+
 /* ---------- Block Canvas ---------- */
 .block-canvas {
   display: flex;

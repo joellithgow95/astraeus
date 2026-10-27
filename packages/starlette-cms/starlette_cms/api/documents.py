@@ -56,6 +56,19 @@ def _coerce_filter_value(v: str) -> Any:
     return v
 
 
+def _strings_at(value: Any, path: list[str]) -> list[str]:
+    """Non-empty strings in the list(s) at a dotted ``path``, stepping into lists on the way."""
+    if not path:
+        if isinstance(value, list):
+            return [v for v in value if isinstance(v, str) and v]
+        return []
+    if isinstance(value, list):
+        return [s for item in value for s in _strings_at(item, path)]
+    if isinstance(value, dict):
+        return _strings_at(value.get(path[0]), path[1:])
+    return []
+
+
 def _matches_filters(doc: dict, filters: dict[str, Any]) -> bool:
     """Return True if all filter key/value pairs match the document body."""
     body = doc.get("body", {})
@@ -1247,8 +1260,52 @@ def make_document_routes(cms: CMS) -> list[Route]:
         )
         return JSONResponse({"history": [_row_to_dict(r) for r in rows]})
 
+    async def list_tags(request: Request) -> JSONResponse:
+        """List the distinct tags used on one document type, most used first.
+
+        ``GET /api/tags?type=blog_post`` reads the ``tags`` field;
+        ``&field=<name>`` reads another list-of-strings field, and a dotted
+        path reads one inside a list of objects (``field=links.tags`` gives
+        the tags on a ``LinksField``'s items). A document's
+        draft counts as well as its published body, so a tag typed on a draft
+        is offered on the next one before anything is published. Each tag
+        counts once per document.
+
+        This backs the editor's tag chips (``TagsField``).
+        """
+        if cms.read_auth:
+            if (err := await require_auth(request, cms)) is not None:
+                return err
+
+        doc_type = request.query_params.get("type") or ""
+        if not doc_type:
+            return JSONResponse({"error": "type is required"}, status_code=400)
+        path = (request.query_params.get("field") or "tags").split(".")
+
+        rows = (
+            await CMSDocument.select(CMSDocument.body, CMSDocument.draft_body)
+            .where(CMSDocument.doc_type == doc_type)
+            .run()
+        )
+        counts: dict[str, int] = {}
+        for row in rows:
+            seen: set[str] = set()
+            for raw in (row.get("body"), row.get("draft_body")):
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                seen.update(_strings_at(raw, path))
+            for tag in seen:
+                counts[tag] = counts.get(tag, 0) + 1
+
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        return JSONResponse({"tags": [{"tag": t, "count": n} for t, n in ranked]})
+
     return [
         Route("/api/documents", endpoint=list_documents, methods=["GET"]),
+        Route("/api/tags", endpoint=list_tags, methods=["GET"]),
         Route("/api/documents", endpoint=create_document, methods=["POST"]),
         Route(
             "/api/documents/singleton/{block_type}",

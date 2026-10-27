@@ -39,6 +39,7 @@ This gives you:
 - `GET/PATCH/DELETE /cms/api/documents/{id}` — get, update, delete
 - `POST /cms/api/documents/{id}/publish` — publish with webhook delivery
 - `GET /cms/api/schema` — JSON Schema introspection with editor hints
+- `GET /cms/api/tags?type=<doc type>[&field=<name or a.b path>]` — distinct tags in use, most used first
 
 ## Field types
 
@@ -52,6 +53,8 @@ This gives you:
 | `BoolField` | `bool` | Toggles |
 | `URLField` | `str` | URLs |
 | `JSONField` | `dict \| list \| None` | Arbitrary JSON |
+| `TagsField` | `list[str]` | Tags, edited as chips with type-ahead |
+| `LinksField` | `list[LinkItem]` | External links `{url, title, description, date_added, tags}`; unknown keys kept; `required_keys=` makes more than `url` required |
 | `DocumentRef` | `str` | Foreign key to another document |
 | `ListField` | `list[...]` | Ordered lists of blocks |
 | `BlockField` | model | Single nested block |

@@ -32,14 +32,36 @@ from starlette_cms.fields import (
     DocumentRef,
     ImageField,
     JSONField,
+    LinksField,
     ListField,
     NumberField,
     RichTextField,
     SelectField,
+    TagsField,
     TextField,
     URLField,
     _BaseField,
 )
+
+
+class LinkItem(pydantic.BaseModel):
+    """One item of a ``LinksField``. Unknown keys are kept as written."""
+
+    model_config = pydantic.ConfigDict(extra="allow")
+
+    url: str = Field(min_length=1)
+    title: str | None = None
+    description: str | None = None
+    date_added: str | None = None
+    tags: list[str] | None = None
+
+
+def _link_item_model(required_keys: list[str]) -> type[LinkItem]:
+    """``LinkItem``, with ``required_keys`` made required non-empty strings."""
+    if not required_keys:
+        return LinkItem
+    fields: dict[str, Any] = {k: (str, Field(min_length=1)) for k in required_keys}
+    return create_model("LinkItem_" + "_".join(sorted(required_keys)), __base__=LinkItem, **fields)
 
 
 def _make_field(
@@ -148,6 +170,17 @@ def _make_field(
             json_type = dict | list
             return (json_type, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
         return (json_type, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, TagsField):
+        if optional:
+            return (list[str] | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (list[str], Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, LinksField):
+        links_type: Any = list[_link_item_model(default.required_keys)]  # type: ignore[misc]
+        if optional:
+            return (links_type | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (links_type, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
 
     if isinstance(default, DocumentRef):
         if optional:

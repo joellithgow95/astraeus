@@ -189,7 +189,9 @@ The changeset panel, chat panel, publish drawer and toasts are written against t
 | `SelectField` | `<select>` dropdown |
 | `NumberField` | `<input type="number">` with min/max |
 | `BoolField` | Toggle switch |
-| `DocumentRef` | `<input type="text">` (document ID) |
+| `DocumentRef` | `<select>` of documents of `block_type` (text input when untyped) |
+| `TagsField` | Chips; type-ahead from `GET /api/tags`; typed tags lowercased and hyphenated |
+| `LinksField` | A card per link (URL, title, description, date, tag chips); paste a URL to add, move up/down, remove |
 | `JSONField` | `<textarea>` with JSON pretty-printing |
 
 ---

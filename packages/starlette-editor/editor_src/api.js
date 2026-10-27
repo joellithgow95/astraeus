@@ -359,3 +359,17 @@ export async function deleteChangeset(changesetId) {
   }
   return null;
 }
+
+/**
+ * Tags already used on a document type, most used first.
+ *
+ * @param {string} docType
+ * @param {string} [field]  — field name, or a dotted path such as `links.tags`
+ * @returns {Promise<{tag: string, count: number}[]>}
+ */
+export async function fetchTags(docType, field = 'tags') {
+  const params = new URLSearchParams({ type: docType, field });
+  const res = await apiFetch(`/api/tags?${params}`);
+  if (!res.ok) throw new Error(`Tags fetch failed: ${res.status}`);
+  return (await res.json()).tags || [];
+}

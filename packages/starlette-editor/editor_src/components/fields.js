@@ -4,13 +4,15 @@
 
 import { humanizeFieldName, getDefaultValue, $ as domId, el } from '../utils.js'
 import { buildDocumentRefPicker } from './document-ref-picker.js'
+import { buildLinksInput } from './links-input.js'
+import { buildTagsInput } from './tags-input.js'
 
 /**
  * Determine what kind of UI widget to use for a field.
  *
  * Returns one of: 'prosemirror' | 'textarea' | 'input' | 'number'
  *                 | 'boolean' | 'select' | 'json' | 'block_canvas'
- *                 | 'image_picker' | 'document_ref'
+ *                 | 'image_picker' | 'document_ref' | 'tags' | 'links'
  *
  * Explicit field_type from cms:field_meta takes precedence over all
  * heuristics. Heuristic fallbacks are kept for schemas that pre-date
@@ -33,6 +35,8 @@ export function fieldWidget(name, prop, meta) {
   if (ft === 'boolean')      return 'boolean';
   if (ft === 'json')         return 'json';
   if (ft === 'document_ref') return 'document_ref';
+  if (ft === 'tags')         return 'tags';
+  if (ft === 'links')        return 'links';
   // url, text → fall through to heuristics below
 
   // --- Legacy heuristics (backwards compat for fields without field_type) ---
@@ -202,6 +206,24 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
       group.appendChild(
         buildDocumentRefPicker(name, meta, currentVal, isRequired, onFieldChange),
       );
+      break;
+    }
+
+    case 'tags': {
+      group.appendChild(buildTagsInput({
+        id: `field-${name}`,
+        value: currentVal,
+        docType: state.activeType,
+        field: name,
+        // [] rather than null: a site schema such as zod's .optional() takes
+        // a missing or empty list but not null.
+        onChange: tags => onFieldChange(name, tags),
+      }));
+      break;
+    }
+
+    case 'links': {
+      group.appendChild(buildLinksInput(name, meta, currentVal, state.activeType, onFieldChange));
       break;
     }
 
