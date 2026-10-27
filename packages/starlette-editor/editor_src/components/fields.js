@@ -3,6 +3,7 @@
  */
 
 import { humanizeFieldName, getDefaultValue, $ as domId, el } from '../utils.js'
+import { buildDocumentRefList } from './document-ref-list.js'
 import { buildDocumentRefPicker } from './document-ref-picker.js'
 import { buildLinksInput } from './links-input.js'
 import { buildTagsInput } from './tags-input.js'
@@ -12,7 +13,8 @@ import { buildTagsInput } from './tags-input.js'
  *
  * Returns one of: 'prosemirror' | 'textarea' | 'input' | 'number'
  *                 | 'boolean' | 'select' | 'json' | 'block_canvas'
- *                 | 'image_picker' | 'document_ref' | 'tags' | 'links'
+ *                 | 'image_picker' | 'document_ref' | 'document_ref_list'
+ *                 | 'tags' | 'links'
  *
  * Explicit field_type from cms:field_meta takes precedence over all
  * heuristics. Heuristic fallbacks are kept for schemas that pre-date
@@ -35,6 +37,7 @@ export function fieldWidget(name, prop, meta) {
   if (ft === 'boolean')      return 'boolean';
   if (ft === 'json')         return 'json';
   if (ft === 'document_ref') return 'document_ref';
+  if (ft === 'document_ref_list') return 'document_ref_list';
   if (ft === 'tags')         return 'tags';
   if (ft === 'links')        return 'links';
   // url, text → fall through to heuristics below
@@ -206,6 +209,12 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
       group.appendChild(
         buildDocumentRefPicker(name, meta, currentVal, isRequired, onFieldChange),
       );
+      break;
+    }
+
+    case 'document_ref_list': {
+      group.appendChild(buildDocumentRefList(name, meta, currentVal, onFieldChange));
+      labelEl.setAttribute('for', `field-${name}-search`);
       break;
     }
 

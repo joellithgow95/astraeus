@@ -3,6 +3,8 @@
  */
 
 import { el, humanizeFieldName, getDefaultValue } from '../utils.js'
+import { buildDocumentRefList } from './document-ref-list.js'
+import { buildDocumentRefPicker } from './document-ref-picker.js'
 import { fieldWidget } from './fields.js'
 import { state } from '../state.js'
 
@@ -35,17 +37,21 @@ export function getBlockTypesMeta(prop, typeSchema) {
     };
   }
 
-  const items = prop?.items;
+  // An optional list is `anyOf: [{type: 'array', items}, {type: 'null'}]`.
+  const listSchema = prop?.items ? prop : (prop?.anyOf || []).find(v => v?.items);
+  const items = listSchema?.items;
   if (!items) return result;
+  // Pydantic writes a discriminated union (ListField(blocks=[...])) as oneOf.
+  const variants = items.anyOf || items.oneOf;
 
   if (items.$ref) {
     // Homogeneous
     const className = items.$ref.replace(/^#\/\$defs\//, '');
     const entry = extractEntry(className, resolveRef(items.$ref));
     if (entry) result.push(entry);
-  } else if (Array.isArray(items.anyOf)) {
+  } else if (Array.isArray(variants)) {
     // Polymorphic
-    for (const variant of items.anyOf) {
+    for (const variant of variants) {
       if (variant.$ref) {
         const className = variant.$ref.replace(/^#\/\$defs\//, '');
         const entry = extractEntry(className, resolveRef(variant.$ref));
@@ -263,6 +269,25 @@ function buildBlockCard(fieldName, blockData, blockSchema, index, total, availab
 
     const bGroup = el('div', { class: 'field-group field-group--nested' });
     bGroup.appendChild(el('label', { class: 'field-label', for: `block-${fieldName}-${index}-${bFieldName}` }, bLabel));
+
+    // References are picked, not typed: a block's own field meta (in its
+    // schema property) says what they point at, so a picked slice can search
+    // its target type like a top-level field does.
+    const refMeta = bProp['cms:field_meta'];
+    const onRefChange = (_name, value) => updateBlockField(fieldName, index, bFieldName, value);
+    if (refMeta?.field_type === 'document_ref_list') {
+      bGroup.appendChild(buildDocumentRefList(`${fieldName}-${index}-${bFieldName}`, refMeta, bVal, onRefChange,
+        { inputId: `block-${fieldName}-${index}-${bFieldName}` }));
+      body.appendChild(bGroup);
+      continue;
+    }
+    if (refMeta?.field_type === 'document_ref') {
+      const picker = buildDocumentRefPicker(`${fieldName}-${index}-${bFieldName}`, refMeta, bVal, false, onRefChange);
+      picker.id = `block-${fieldName}-${index}-${bFieldName}`;
+      bGroup.appendChild(picker);
+      body.appendChild(bGroup);
+      continue;
+    }
 
     // Render scalar widgets inline (no recursive block_canvas for nested blocks)
     switch (widget) {

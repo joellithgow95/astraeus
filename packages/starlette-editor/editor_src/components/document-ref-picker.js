@@ -59,7 +59,7 @@ export function buildDocumentRefPicker(name, meta, currentValue, isRequired, onF
       if (!isRequired) sel.appendChild(el('option', { value: '' }, '— None —'))
 
       for (const doc of documents) {
-        const opt = el('option', { value: doc.id }, docTitle(doc))
+        const opt = el('option', { value: doc.id }, docTitle(doc, meta.ref_label_field))
         if (currentValue === doc.id) opt.setAttribute('selected', 'true')
         sel.appendChild(opt)
       }
