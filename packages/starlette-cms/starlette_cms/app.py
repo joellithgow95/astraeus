@@ -172,7 +172,7 @@ class CMS:
     # Document registration
     # ------------------------------------------------------------------
 
-    def document(self, name: str):
+    def document(self, name: str, *, group: str | None = None):
         """Register a document type::
 
             @cms.document("page")
@@ -181,7 +181,12 @@ class CMS:
                 slug: str = TextField(required=True)
                 body: list = ListField(blocks=[HeroBlock])
 
-        The class is converted to a Pydantic model before storage.
+        The class is converted to a Pydantic model before storage. *group* files the
+        type under a labelled section of the editor sidebar (``/api/schema`` reports
+        it), the same as ``@block(group=...)``::
+
+            @cms.document("spotify_like", group="Data")
+            class SpotifyLike: ...
         """
 
         # Fields that exist as top-level columns on CMSDocument — defining them
@@ -211,7 +216,7 @@ class CMS:
             self._document_types[name] = model
             # Also register in the block registry so /api/schema includes document types
             model.__block_type__ = name
-            self.registry.register_block(model, override=True)
+            self.registry.register_block(model, override=True, group=group)
             return model
 
         return decorator
