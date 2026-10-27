@@ -35,6 +35,16 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+def _validation_detail(exc: ValidationError) -> list[dict[str, Any]]:
+    """``exc.errors()`` as JSON-safe dicts.
+
+    A custom validator that raises ``ValueError`` puts the exception itself in
+    the error's ``ctx``, which ``JSONResponse`` cannot serialise (a 500 instead
+    of the 422); pydantic's own JSON form writes it as its message.
+    """
+    return json.loads(exc.json())
+
+
 def _utcnow() -> str:
     """Return current UTC time as ISO 8601 string."""
     return datetime.now(UTC).isoformat()
@@ -508,7 +518,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
             validated = doc_model.model_validate(body_data)
         except ValidationError as exc:
             return JSONResponse(
-                {"error": "Validation failed", "detail": exc.errors()},
+                {"error": "Validation failed", "detail": _validation_detail(exc)},
                 status_code=422,
             )
 
@@ -742,7 +752,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
                 merged_body = validated.model_dump(exclude_none=True)
             except ValidationError as exc:
                 return JSONResponse(
-                    {"error": "Validation failed", "detail": exc.errors()},
+                    {"error": "Validation failed", "detail": _validation_detail(exc)},
                     status_code=422,
                 )
 
@@ -1219,7 +1229,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
             validated = block_model.model_validate(body_data)
         except ValidationError as exc:
             return JSONResponse(
-                {"error": "Validation failed", "detail": exc.errors()},
+                {"error": "Validation failed", "detail": _validation_detail(exc)},
                 status_code=422,
             )
 
