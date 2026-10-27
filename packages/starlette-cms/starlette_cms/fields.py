@@ -216,6 +216,59 @@ class JSONField(_BaseField):
 
 
 @dataclass
+class TagsField(_BaseField):
+    """A list of short tag strings, edited as chips.
+
+    Stored as ``list[str]``, the same shape a ``JSONField`` holding tags
+    already has, so switching a field to it needs no migration. The editor
+    offers tags already used on the field's document type
+    (``GET /api/tags``), and lowercases and hyphenates what you type. The
+    API does not rewrite tags on write: a gateway that owns ``tags`` hashes
+    what it sent, and a stored value it did not send would rewrite the
+    document on every sync.
+
+    Examples::
+
+        tags: list | None = TagsField()
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "tags"
+        return m
+
+
+@dataclass
+class LinksField(_BaseField):
+    """A list of external links, each ``{url, title, description, date_added, tags}``.
+
+    Only ``url`` is required unless ``required_keys`` names more of
+    ``title``, ``description`` and ``date_added`` (for a site whose build
+    rejects a link without them). Unknown keys on an item are kept, so data
+    written by an older schema or a script survives an edit in the editor.
+
+    Examples::
+
+        links: list | None = LinksField(help_text="Links shown on the post's card")
+        links: list | None = LinksField(required_keys=["title", "date_added"])
+    """
+
+    required_keys: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        unknown = set(self.required_keys) - {"title", "description", "date_added"}
+        if unknown:
+            raise ValueError(f"LinksField.required_keys: unknown keys {sorted(unknown)}")
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "links"
+        if self.required_keys:
+            m["required_keys"] = list(self.required_keys)
+        return m
+
+
+@dataclass
 class DocumentRef(_BaseField):
     """
     A typed foreign key to another document.
