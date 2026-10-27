@@ -69,7 +69,11 @@ def make_schema_routes(cms: CMS) -> list[Route]:
                 {"error": f"Block type {block_type!r} is not registered"},
                 status_code=404,
             )
-        return JSONResponse(_block_schema(blocks[block_type], block_type))
+        return JSONResponse(
+            _block_schema(
+                blocks[block_type], block_type, cms.registry.get_registration(block_type).group
+            )
+        )
 
     async def get_schema_version(request: Request) -> JSONResponse:
         from starlette_cms import __version__
