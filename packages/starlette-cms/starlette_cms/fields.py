@@ -78,10 +78,16 @@ class ListField(_BaseField):
     A list of items. Pass a single block class for a homogeneous list,
     or a list of block classes for a polymorphic block list.
 
+    Pass a ``DocumentRef`` for an ordered list of references (ADR 010): the
+    list stores document IDs, each checked on write like a single ref, with
+    no ID listed twice. ``on_delete`` works per entry: ``"nullify"`` drops
+    the deleted ID from the list.
+
     Examples::
 
         cards: list = ListField(CardBlock)
         body: list = ListField(blocks=[HeroBlock, CardSectionBlock])
+        songs: list = ListField(DocumentRef(block_type="spotify_like", on_delete="nullify"))
     """
 
     item_type: Any = None
@@ -98,6 +104,10 @@ class ListField(_BaseField):
 
     def field_meta(self) -> dict[str, Any]:
         m = super().field_meta()
+        if isinstance(self.item_type, DocumentRef):
+            m.update(self.item_type.ref_meta())
+            m["field_type"] = "document_ref_list"
+            return m
         m["field_type"] = "block_list"
         return m
 
@@ -281,6 +291,9 @@ class DocumentRef(_BaseField):
     - ``"nullify"`` — set this field to None in all referencing documents
     - ``"cascade"`` — delete all documents referencing the target (dangerous)
 
+    ``label_field`` names the target's body field the editor shows in its
+    picker, for a type with no ``title`` or ``name`` (``label_field="track"``).
+
     Example::
 
         submission_ref: str = DocumentRef(block_type="jewelry_item", immutable=True)
@@ -288,11 +301,19 @@ class DocumentRef(_BaseField):
 
     block_type: str | None = None
     on_delete: str = "block"
+    label_field: str | None = None
+
+    def ref_meta(self) -> dict[str, Any]:
+        """The target-describing keys, shared with ``ListField(DocumentRef(...))``."""
+        meta: dict[str, Any] = {"on_delete": self.on_delete}
+        if self.block_type:
+            meta["ref_block_type"] = self.block_type
+        if self.label_field:
+            meta["ref_label_field"] = self.label_field
+        return meta
 
     def field_meta(self) -> dict[str, Any]:
         meta = super().field_meta()
-        if self.block_type:
-            meta["ref_block_type"] = self.block_type
-        meta["on_delete"] = self.on_delete
+        meta.update(self.ref_meta())
         meta["field_type"] = "document_ref"
         return meta

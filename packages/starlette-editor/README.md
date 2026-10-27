@@ -190,6 +190,7 @@ The changeset panel, chat panel, publish drawer and toasts are written against t
 | `NumberField` | `<input type="number">` with min/max |
 | `BoolField` | Toggle switch |
 | `DocumentRef` | `<select>` of documents of `block_type` (text input when untyped) |
+| `ListField(DocumentRef(...))` | A row per referenced document (move up/down, remove; an ID whose document is gone is shown as missing); search box adds by title (`?q=`). Also inside block cards |
 | `TagsField` | Chips; type-ahead from `GET /api/tags`; typed tags lowercased and hyphenated |
 | `LinksField` | A card per link (URL, title, description, date, tag chips); paste a URL to add, move up/down, remove |
 | `JSONField` | `<textarea>` with JSON pretty-printing |

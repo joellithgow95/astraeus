@@ -60,6 +60,37 @@ export async function fetchDocuments(docType, { limit = 50, offset = 0 } = {}) {
 }
 
 /**
+ * Find documents of a type whose slug or a top-level text field contains
+ * `q` (case-insensitive), for the reference pickers.
+ *
+ * @param {string} docType
+ * @param {string} q
+ * @param {{limit?: number}} [opts]
+ * @returns {Promise<object[]>}
+ */
+export async function searchDocuments(docType, q, { limit = 8 } = {}) {
+  const params = new URLSearchParams({ type: docType, limit });
+  if (q) params.set('q', q);
+  const res = await apiFetch(`/api/documents?${params}`);
+  if (!res.ok) throw new Error(`Documents search failed: ${res.status}`);
+  return (await res.json()).documents || [];
+}
+
+/**
+ * Fetch specific documents by id (any order; missing ids are simply absent).
+ *
+ * @param {string[]} ids
+ * @returns {Promise<object[]>}
+ */
+export async function fetchDocumentsByIds(ids) {
+  if (!ids.length) return [];
+  const params = new URLSearchParams({ ids: ids.join(','), limit: ids.length });
+  const res = await apiFetch(`/api/documents?${params}`);
+  if (!res.ok) throw new Error(`Documents fetch failed: ${res.status}`);
+  return (await res.json()).documents || [];
+}
+
+/**
  * Load a document for editing — its draft body if it has one.
  *
  * Without ?draft=true the API returns the published body, so reopening a

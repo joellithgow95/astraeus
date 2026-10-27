@@ -1194,6 +1194,127 @@ html, body {
   }
 }
 
+/* ---------- Document reference list ---------- */
+.ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ref-list__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.ref-list__list:empty {
+  display: none;
+}
+
+.ref-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+}
+
+.ref-list__row + .ref-list__row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ref-list__position {
+  min-width: 20px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.ref-list__heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.ref-list__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.ref-list__sub {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.ref-list__row.is-missing .ref-list__title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ref-list__row.is-missing .ref-list__sub {
+  color: var(--red);
+}
+
+.ref-list__controls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ref-list__remove:hover:not(:disabled) {
+  color: var(--red);
+}
+
+.ref-list__empty {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.ref-list__empty[hidden] {
+  display: none;
+}
+
+.ref-list__add {
+  position: relative;
+}
+
+/* A block card clips its overflow (rounded corners), so inside one the menu
+   takes room in the flow instead of floating over the card's edge. */
+.block-card .ref-list__menu {
+  position: static;
+  margin-top: var(--space-1);
+}
+
+.ref-list__none {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+@media (max-width: 560px) {
+  .ref-list__sub {
+    display: none;
+  }
+}
+
 /* ---------- Block Canvas ---------- */
 .block-canvas {
   display: flex;

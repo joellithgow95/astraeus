@@ -98,11 +98,15 @@ def _make_field(
         return (str, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
 
     if isinstance(default, ListField):
-        if default.blocks:
+        if isinstance(default.item_type, DocumentRef):
+            # Ordered document IDs; existence, type and duplicates are checked
+            # against the database on write (api/documents.py).
+            list_type: Any = list[str]
+        elif default.blocks:
             # Polymorphic block list — discriminated union
             union_type: Any = Union[tuple(default.blocks)]  # type: ignore[arg-type]  # noqa: UP007
             item_ann = Annotated[union_type, Field(discriminator="block_type")]
-            list_type: Any = list[item_ann]  # type: ignore[valid-type]
+            list_type = list[item_ann]  # type: ignore[valid-type]
         elif default.item_type is not None:
             list_type = list[default.item_type]  # type: ignore[valid-type]
         else:
@@ -243,6 +247,35 @@ def _collect_field_defs(cls: type) -> dict[str, tuple[Any, FieldInfo]]:
     return field_defs
 
 
+def _ref_attrs(cls: type, model: Any) -> None:
+    """Attach the reference fields of ``cls`` to ``model`` (read by ``starlette_cms.refs``).
+
+    - ``__ref_fields__``: single ``DocumentRef`` fields.
+    - ``__ref_list_fields__``: ``ListField(DocumentRef(...))`` fields, by their item ref.
+    - ``__block_fields__``: fields holding nested block models, so refs inside
+      blocks are found too.
+    """
+    refs: dict[str, DocumentRef] = {}
+    ref_lists: dict[str, DocumentRef] = {}
+    block_fields: dict[str, list[Any]] = {}
+    for attr, value in vars(cls).items():
+        if isinstance(value, DocumentRef):
+            refs[attr] = value
+        elif isinstance(value, ListField):
+            if isinstance(value.item_type, DocumentRef):
+                ref_lists[attr] = value.item_type
+            else:
+                models = value.blocks or [value.item_type]
+                if blocks := [m for m in models if isinstance(m, type) and issubclass(m, pydantic.BaseModel)]:
+                    block_fields[attr] = blocks
+        elif isinstance(value, BlockField):
+            if isinstance(value.block_type, type) and issubclass(value.block_type, pydantic.BaseModel):
+                block_fields[attr] = [value.block_type]
+    model.__ref_fields__ = refs
+    model.__ref_list_fields__ = ref_lists
+    model.__block_fields__ = block_fields
+
+
 def get_immutable_fields(cls: type) -> list[str]:
     """Return the list of field names that are marked ``immutable=True``."""
     result = []
@@ -277,9 +310,7 @@ def build_block_model(name: str, cls: type) -> type[pydantic.BaseModel]:
     model = create_model(cls.__name__, **field_defs)  # type: ignore[call-overload]
     model.__block_type__ = name  # type: ignore[attr-defined]
     model.__immutable_fields__ = get_immutable_fields(cls)  # type: ignore[attr-defined]
-    model.__ref_fields__ = {  # type: ignore[attr-defined]
-        attr: value for attr, value in vars(cls).items() if isinstance(value, DocumentRef)
-    }
+    _ref_attrs(cls, model)
     model.model_rebuild()
     return model
 
@@ -308,9 +339,7 @@ def build_document_model(name: str, cls: type) -> type[pydantic.BaseModel]:
     ]
 
     model.__immutable_fields__ = get_immutable_fields(cls)  # type: ignore[attr-defined]
-    model.__ref_fields__ = {  # type: ignore[attr-defined]
-        attr: value for attr, value in vars(cls).items() if isinstance(value, DocumentRef)
-    }
+    _ref_attrs(cls, model)
 
     model.model_rebuild()
     return model

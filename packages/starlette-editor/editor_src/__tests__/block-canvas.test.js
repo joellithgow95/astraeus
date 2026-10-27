@@ -62,6 +62,29 @@ describe('getBlockTypesMeta', () => {
     expect(result.map(r => r.registeredType)).toEqual(['hero', 'text'])
   })
 
+  it('resolves an optional discriminated list, as pydantic writes it', () => {
+    // ListField(blocks=[...]) without required=True
+    const prop = {
+      anyOf: [
+        {
+          type: 'array',
+          items: {
+            discriminator: { propertyName: 'block_type' },
+            oneOf: [{ $ref: '#/$defs/RangeSlice' }, { $ref: '#/$defs/PickedSlice' }],
+          },
+        },
+        { type: 'null' },
+      ],
+    }
+    const typeSchema = {
+      $defs: {
+        RangeSlice: { properties: { block_type: { const: 'range_slice' } } },
+        PickedSlice: { properties: { block_type: { const: 'picked_slice' } } },
+      },
+    }
+    expect(getBlockTypesMeta(prop, typeSchema).map(r => r.registeredType)).toEqual(['range_slice', 'picked_slice'])
+  })
+
   it('returns an empty array when items is missing', () => {
     expect(getBlockTypesMeta({}, {})).toEqual([])
     expect(getBlockTypesMeta({ items: null }, {})).toEqual([])
