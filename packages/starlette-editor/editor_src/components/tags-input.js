@@ -61,9 +61,10 @@ export function rankSuggestions(known, query, chosen) {
  * @param {string}  [opts.field]      — field (or dotted path) to read suggestions from
  * @param {string}  [opts.placeholder]
  * @param {Promise<{tag: string, count: number}[]>} [opts.known] — suggestions, if already fetched
+ * @param {number}  [opts.max]        — most tags allowed; the text box hides once it is reached
  * @returns {HTMLElement}
  */
-export function buildTagsInput({ id, value, onChange, docType, field = 'tags', placeholder, known }) {
+export function buildTagsInput({ id, value, onChange, docType, field = 'tags', placeholder, known, max = Infinity }) {
   let tags = Array.isArray(value) ? value.filter(t => typeof t === 'string') : []
   let menuItems = []
   let active = -1
@@ -92,6 +93,7 @@ export function buildTagsInput({ id, value, onChange, docType, field = 'tags', p
 
   function renderChips() {
     chips.innerHTML = ''
+    input.hidden = tags.length >= max
     tags.forEach((tag, i) => {
       chips.appendChild(el('span', { class: 'tag-chip' },
         el('span', { class: 'tag-chip__label' }, tag),
@@ -99,7 +101,11 @@ export function buildTagsInput({ id, value, onChange, docType, field = 'tags', p
           class: 'tag-chip__remove',
           type: 'button',
           'aria-label': `Remove ${tag}`,
-          onclick: e => { e.stopPropagation(); removeAt(i) },
+          onclick: e => {
+            e.stopPropagation()
+            removeAt(i)
+            if (max !== Infinity) input.focus()  // single: the box is back, ready for the replacement
+          },
         }, '×'),
       ))
     })
@@ -108,7 +114,7 @@ export function buildTagsInput({ id, value, onChange, docType, field = 'tags', p
   function add(raw) {
     const tag = normalizeTag(raw)
     input.value = ''
-    if (!tag || tags.includes(tag)) { refreshMenu(); return }
+    if (!tag || tags.includes(tag) || tags.length >= max) { refreshMenu(); return }
     tags = [...tags, tag]
     renderChips()
     emit()
@@ -197,5 +203,31 @@ export function buildTagsInput({ id, value, onChange, docType, field = 'tags', p
   source.then(k => { knownTags = k; refreshMenu() }).catch(() => { /* chips still work without suggestions */ })
 
   renderChips()
+  return root
+}
+
+/**
+ * Build a chip input that holds one tag, for a TagField: the value is a
+ * string (`''` when empty), and suggestions come from the type named in
+ * `meta.suggest_from`.
+ *
+ * @param {object} opts
+ * @param {string} opts.id
+ * @param {string} opts.value
+ * @param {(tag: string) => void} opts.onChange
+ * @param {object} [opts.meta]          — cms:field_meta (`suggest_from`, `suggest_field`, `placeholder`)
+ * @returns {HTMLElement}
+ */
+export function buildTagInput({ id, value, onChange, meta = {} }) {
+  const root = buildTagsInput({
+    id,
+    value: typeof value === 'string' && value ? [value] : [],
+    onChange: tags => onChange(tags[0] ?? ''),
+    docType: meta.suggest_from,
+    field: meta.suggest_field || 'tags',
+    placeholder: meta.placeholder ? `e.g. ${meta.placeholder}` : 'Pick a tag…',
+    max: 1,
+  })
+  root.classList.add('tags-input--single')
   return root
 }

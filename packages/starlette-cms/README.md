@@ -54,6 +54,8 @@ This gives you:
 | `URLField` | `str` | URLs |
 | `JSONField` | `dict \| list \| None` | Arbitrary JSON |
 | `TagsField` | `list[str]` | Tags, edited as chips with type-ahead |
+| `TagField` | `str` | One tag, suggested from the tags on another type (`suggest_from="link"`), e.g. a "links tagged X" slice |
+| `DateField` | `str` | A calendar date as `YYYY-MM-DD`, checked on write (a 422 for `2026-02-30`); a date picker in the editor |
 | `LinksField` | `list[LinkItem]` | External links `{url, title, description, date_added, tags}`; unknown keys kept; `required_keys=` makes more than `url` required |
 | `DocumentRef` | `str` | Foreign key to another document |
 | `ListField` | `list[...]` | Ordered lists of blocks, or of document IDs with `ListField(DocumentRef(...))` |

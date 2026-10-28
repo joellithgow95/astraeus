@@ -19,16 +19,19 @@ Usage::
 
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import Annotated, Any, Union
 
 import pydantic
-from pydantic import Field, create_model
+from pydantic import AfterValidator, Field, create_model
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticUndefined
+from pydantic_core import PydanticCustomError, PydanticUndefined
 
 from starlette_cms.fields import (
     BlockField,
     BoolField,
+    DateField,
     DocumentRef,
     ImageField,
     JSONField,
@@ -37,6 +40,7 @@ from starlette_cms.fields import (
     NumberField,
     RichTextField,
     SelectField,
+    TagField,
     TagsField,
     TextField,
     URLField,
@@ -54,6 +58,23 @@ class LinkItem(pydantic.BaseModel):
     description: str | None = None
     date_added: str | None = None
     tags: list[str] | None = None
+
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_date(value: str) -> str:
+    """A ``DateField`` value: a real calendar date written as ``YYYY-MM-DD``."""
+    try:
+        ok = bool(_ISO_DATE.match(value)) and date.fromisoformat(value) is not None
+    except ValueError:  # 2026-02-30
+        ok = False
+    if not ok:
+        raise PydanticCustomError("date", "must be a date as YYYY-MM-DD")
+    return value
+
+
+DateStr = Annotated[str, AfterValidator(_check_date)]
 
 
 def _link_item_model(required_keys: list[str]) -> type[LinkItem]:
@@ -174,6 +195,16 @@ def _make_field(
             json_type = dict | list
             return (json_type, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
         return (json_type, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, TagField):
+        if optional:
+            return (str | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (str, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, DateField):
+        if optional:
+            return (DateStr | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (DateStr, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
 
     if isinstance(default, TagsField):
         if optional:

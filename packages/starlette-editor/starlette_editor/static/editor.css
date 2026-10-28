@@ -1299,7 +1299,8 @@ html, body {
 
 /* A block card clips its overflow (rounded corners), so inside one the menu
    takes room in the flow instead of floating over the card's edge. */
-.block-card .ref-list__menu {
+.block-card .ref-list__menu,
+.block-card .tags-input__menu {
   position: static;
   margin-top: var(--space-1);
 }
@@ -1307,6 +1308,51 @@ html, body {
 .ref-list__none {
   color: var(--text-muted);
   cursor: default;
+}
+
+/* Creating a document from a pasted URL. */
+.ref-list__create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.ref-list__create[hidden] {
+  display: none;
+}
+
+.ref-list__create-title {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.ref-list__create-error {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--red);
+}
+
+.ref-list__create-error[hidden] {
+  display: none;
+}
+
+.ref-list__create-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* A TagField holds one tag: once chosen, the text box gives way to the chip. */
+.tags-input__text[hidden] {
+  display: none;
+}
+
+.field-input--date {
+  max-width: 220px;
 }
 
 @media (max-width: 560px) {
@@ -1336,6 +1382,9 @@ html, body {
   top: calc(100% + 4px);
   left: 0;
   min-width: 180px;
+  max-width: min(420px, calc(100vw - 32px));
+  max-height: 60vh;
+  overflow-y: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -1356,6 +1405,17 @@ html, body {
 .block-type-picker__item:focus {
   background: var(--bg-hover);
   outline: none;
+}
+
+.block-type-picker__name,
+.block-type-picker__description {
+  display: block;
+}
+
+.block-type-picker__description {
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .block-card {
@@ -1430,11 +1490,34 @@ html, body {
   cursor: default;
 }
 
-.block-card__type-label {
+.block-card__heading {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.block-card__type-label {
+  flex-shrink: 0;
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+/* What the block holds, so a collapsed slice still says "2026-10-01 – 2026-10-31". */
+.block-card__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.block-card__description {
+  margin: 0;
 }
 
 .block-card__delete {

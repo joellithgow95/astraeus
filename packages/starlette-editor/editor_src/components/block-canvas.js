@@ -5,7 +5,8 @@
 import { el, humanizeFieldName, getDefaultValue } from '../utils.js'
 import { buildDocumentRefList } from './document-ref-list.js'
 import { buildDocumentRefPicker } from './document-ref-picker.js'
-import { fieldWidget } from './fields.js'
+import { buildDateInput, fieldWidget } from './fields.js'
+import { buildTagInput, buildTagsInput } from './tags-input.js'
 import { state } from '../state.js'
 
 /**
@@ -86,6 +87,7 @@ export function addBlock(fieldName, typeInfo, render) {
     else defaults[k] = '';
   }
   current.push({ block_type: typeInfo.registeredType, ...defaults });
+  openSet(fieldName).add(current.length - 1);  // a new block opens, ready to fill in
   state.formData = { ...state.formData, [fieldName]: current };
   state.isDirty = true;
   render();
@@ -101,6 +103,7 @@ export function addBlock(fieldName, typeInfo, render) {
 export function removeBlock(fieldName, index, render) {
   const current = Array.isArray(state.formData[fieldName]) ? [...state.formData[fieldName]] : [];
   current.splice(index, 1);
+  reindexOpen(fieldName, index, -1);
   state.formData = { ...state.formData, [fieldName]: current };
   state.isDirty = true;
   render();
@@ -119,6 +122,7 @@ export function moveBlock(fieldName, fromIndex, toIndex, render) {
   const current = Array.isArray(state.formData[fieldName]) ? [...state.formData[fieldName]] : [];
   const [item] = current.splice(fromIndex, 1);
   current.splice(toIndex, 0, item);
+  reindexOpen(fieldName, fromIndex, toIndex);
   state.formData = { ...state.formData, [fieldName]: current };
   state.isDirty = true;
   render();
@@ -187,11 +191,152 @@ function buildBlockTypePicker(fieldName, availableTypes, render) {
           picker.previousElementSibling?.focus();
         }
       },
-    }, humanizeFieldName(typeInfo.registeredType));
+    },
+      el('span', { class: 'block-type-picker__name' }, humanizeFieldName(typeInfo.registeredType)),
+      typeInfo.schema?.description
+        ? el('span', { class: 'block-type-picker__description' }, typeInfo.schema.description)
+        : null,
+    );
     picker.appendChild(item);
   }
 
   return picker;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** A block's fields (block_type aside), in display order, each with its cms:field_meta. */
+function blockFields(blockSchema) {
+  return Object.entries(blockSchema?.properties || {})
+    .filter(([k]) => k !== 'block_type')
+    .map(([k, prop]) => [k, prop, prop['cms:field_meta'] || {}])
+    .sort((a, b) => (a[2].display_order ?? a[1].display_order ?? 9999) - (b[2].display_order ?? b[1].display_order ?? 9999))
+}
+
+/**
+ * One line saying what a block holds, for its collapsed card: a slice reads
+ * "2026-10-01 – 2026-10-31", "Songs: 3" or "developer-blog" without being
+ * opened. Dates run together as a range; picked references are counted;
+ * other short text is shown as it is. '' when nothing is filled in.
+ *
+ * @param {object} blockData
+ * @param {object} blockSchema
+ * @returns {string}
+ */
+export function blockSummary(blockData, blockSchema) {
+  const parts = []
+  const dates = []
+  for (const [k, prop, meta] of blockFields(blockSchema)) {
+    const v = blockData?.[k]
+    if (meta.field_type === 'date' || (typeof v === 'string' && ISO_DATE.test(v))) {
+      if (typeof v === 'string' && v) dates.push(v)
+    } else if (Array.isArray(v)) {
+      if (v.length) parts.push(`${meta.label || humanizeFieldName(k)}: ${v.length}`)
+    } else if (typeof v === 'string' && v.trim() && meta.field_type !== 'document_ref') {
+      const text = v.trim()
+      parts.push(text.length > 40 ? `${text.slice(0, 39)}…` : text)
+    }
+  }
+  if (dates.length) parts.unshift(dates.join(' – '))
+  return parts.join(' · ')
+}
+
+/**
+ * Which cards are open, per field, by index. Adding, moving or removing a
+ * block re-renders the canvas, which used to fold every card shut, so a
+ * slice you had just added opened closed and had to be found again.
+ */
+const openCards = new Map()
+
+// Keyed by document too, so opening another post does not inherit them.
+const openKey = fieldName => `${state.activeDocId ?? 'new'}|${fieldName}`
+
+function openSet(fieldName) {
+  const key = openKey(fieldName)
+  if (!openCards.has(key)) openCards.set(key, new Set())
+  return openCards.get(key)
+}
+
+/** Shift the open indices after a block moves from `from` to `to` (to = -1 removes it). */
+function reindexOpen(fieldName, from, to) {
+  const order = [...Array(Math.max(from, to, ...openSet(fieldName)) + 1).keys()]
+  const [moved] = order.splice(from, 1)
+  if (to >= 0) order.splice(to, 0, moved)
+  const next = new Set()
+  order.forEach((old, i) => { if (openSet(fieldName).has(old)) next.add(i) })
+  openCards.set(openKey(fieldName), next)
+}
+
+/**
+ * The control for one field inside a block card. Reads the field's own
+ * cms:field_meta, so a date gets a date picker, a TagField its suggestions
+ * and a reference list its search, as they would at the top level.
+ *
+ * @returns {HTMLElement}
+ */
+function buildNestedInput(id, prop, meta, value, onChange) {
+  const ft = meta.field_type
+  if (ft === 'document_ref_list') return buildDocumentRefList(id, meta, value, (_n, v) => onChange(v), { inputId: id })
+  if (ft === 'document_ref') {
+    const picker = buildDocumentRefPicker(id, meta, value, false, (_n, v) => onChange(v))
+    picker.id = id
+    return picker
+  }
+  if (ft === 'date') return buildDateInput(id, value, onChange)
+  if (ft === 'tag') return buildTagInput({ id, value, meta, onChange })
+  if (ft === 'tags') return buildTagsInput({ id, value, onChange })
+
+  let widget = fieldWidget(id, prop, meta)
+  // No nested canvases or rich text inside a card: edit those as JSON.
+  if (['block_canvas', 'prosemirror', 'links'].includes(widget)) widget = 'json'
+  const choices = meta.choices || prop.enum || []
+
+  switch (widget) {
+    case 'textarea': {
+      const ta = el('textarea', { class: 'field-textarea', id, placeholder: meta.placeholder || '', oninput: e => onChange(e.target.value) })
+      ta.value = value || ''
+      return ta
+    }
+    case 'boolean': {
+      const toggleLabel = el('label', { class: 'toggle-switch', for: id })
+      const input = el('input', { type: 'checkbox', id, onchange: e => onChange(e.target.checked) })
+      if (value) input.setAttribute('checked', 'true')
+      toggleLabel.appendChild(input)
+      toggleLabel.appendChild(el('span', { class: 'toggle-track' }))
+      toggleLabel.appendChild(el('span', { class: 'toggle-thumb' }))
+      return el('div', { class: 'field-bool' }, toggleLabel, el('span', { class: 'field-bool__label' }, meta.label || ''))
+    }
+    case 'number':
+      return el('input', {
+        class: 'field-input', id, type: 'number',
+        value: value != null ? String(value) : '',
+        oninput: e => onChange(e.target.value === '' ? null : Number(e.target.value)),
+      })
+    case 'select': {
+      const sel = el('select', { class: 'field-select', id, onchange: e => onChange(e.target.value) })
+      for (const choice of choices) {
+        const opt = el('option', { value: choice }, choice)
+        if (value === choice) opt.setAttribute('selected', 'true')
+        sel.appendChild(opt)
+      }
+      return sel
+    }
+    case 'json': {
+      const ta = el('textarea', {
+        class: 'field-textarea field-textarea--json', id,
+        oninput: e => { try { onChange(JSON.parse(e.target.value)) } catch { /* ignore */ } },
+      })
+      ta.value = value != null ? JSON.stringify(value, null, 2) : ''
+      return ta
+    }
+    default: // input / image_picker → plain input in nested context
+      return el('input', {
+        class: 'field-input', id, type: 'text',
+        placeholder: meta.placeholder || '',
+        value: typeof value === 'string' ? value : (value != null ? String(value) : ''),
+        oninput: e => onChange(e.target.value),
+      })
+  }
 }
 
 /**
@@ -207,7 +352,7 @@ function buildBlockTypePicker(fieldName, availableTypes, render) {
  * @returns {HTMLElement}
  */
 function buildBlockCard(fieldName, blockData, blockSchema, index, total, availableTypes, render) {
-  const card = el('div', { class: 'block-card' });
+  const card = el('div', { class: `block-card${openSet(fieldName).has(index) ? ' is-open' : ''}` });
 
   // Blocks are an ordered sequence, so the position is real information rather
   // than decoration — it doubles as the label for the move controls.
@@ -231,10 +376,15 @@ function buildBlockCard(fieldName, blockData, blockSchema, index, total, availab
     onclick: e => { e.stopPropagation(); moveBlock(fieldName, index, index + 1, render); },
   }, '↓');
 
+  const summary = el('span', { class: 'block-card__summary' }, blockSummary(blockData, blockSchema));
+
   // Header
   const header = el('div', { class: 'block-card__header', title: 'Click to expand/collapse' },
     position,
-    el('span', { class: 'block-card__type-label' }, humanizeFieldName(blockData.block_type || 'Block')),
+    el('span', { class: 'block-card__heading' },
+      el('span', { class: 'block-card__type-label' }, humanizeFieldName(blockData.block_type || 'Block')),
+      summary,
+    ),
     el('div', { class: 'block-card__controls' },
       moveUp,
       moveDown,
@@ -252,121 +402,32 @@ function buildBlockCard(fieldName, blockData, blockSchema, index, total, availab
   // Body (collapsible)
   const body = el('div', { class: 'block-card__body' });
 
-  const props = blockSchema?.properties || {};
-  const orderedEntries = Object.entries(props)
-    .filter(([k]) => k !== 'block_type')
-    .sort((a, b) => {
-      const oa = a[1].display_order ?? 9999;
-      const ob = b[1].display_order ?? 9999;
-      return oa - ob;
-    });
+  // The block's docstring says what it does ("Spotify likes whose liked_at
+  // falls between ..."), which the type name alone does not.
+  if (blockSchema?.description) {
+    body.appendChild(el('p', { class: 'field-help block-card__description' }, blockSchema.description));
+  }
 
-  for (const [bFieldName, bProp] of orderedEntries) {
-    const bMeta = {};  // block schema fields don't carry field_meta in this context
-    const widget = fieldWidget(bFieldName, bProp, bMeta);
-    const bLabel = humanizeFieldName(bFieldName);
+  const required = blockSchema?.required || [];
+  for (const [bFieldName, bProp, bMeta] of blockFields(blockSchema)) {
+    const id = `block-${fieldName}-${index}-${bFieldName}`;
+    const bLabel = bMeta.label || humanizeFieldName(bFieldName);
     const bVal = blockData[bFieldName] ?? getDefaultValue(bProp, bMeta);
+    const onChange = value => {
+      updateBlockField(fieldName, index, bFieldName, value);
+      summary.textContent = blockSummary(state.formData[fieldName]?.[index], blockSchema);
+    };
 
     const bGroup = el('div', { class: 'field-group field-group--nested' });
-    bGroup.appendChild(el('label', { class: 'field-label', for: `block-${fieldName}-${index}-${bFieldName}` }, bLabel));
-
-    // References are picked, not typed: a block's own field meta (in its
-    // schema property) says what they point at, so a picked slice can search
-    // its target type like a top-level field does.
-    const refMeta = bProp['cms:field_meta'];
-    const onRefChange = (_name, value) => updateBlockField(fieldName, index, bFieldName, value);
-    if (refMeta?.field_type === 'document_ref_list') {
-      bGroup.appendChild(buildDocumentRefList(`${fieldName}-${index}-${bFieldName}`, refMeta, bVal, onRefChange,
-        { inputId: `block-${fieldName}-${index}-${bFieldName}` }));
-      body.appendChild(bGroup);
-      continue;
-    }
-    if (refMeta?.field_type === 'document_ref') {
-      const picker = buildDocumentRefPicker(`${fieldName}-${index}-${bFieldName}`, refMeta, bVal, false, onRefChange);
-      picker.id = `block-${fieldName}-${index}-${bFieldName}`;
-      bGroup.appendChild(picker);
-      body.appendChild(bGroup);
-      continue;
-    }
-
-    // Render scalar widgets inline (no recursive block_canvas for nested blocks)
-    switch (widget) {
-      case 'textarea': {
-        const ta = el('textarea', {
-          class: 'field-textarea',
-          id: `block-${fieldName}-${index}-${bFieldName}`,
-          placeholder: '',
-          oninput: e => updateBlockField(fieldName, index, bFieldName, e.target.value),
-        });
-        ta.value = bVal || '';
-        bGroup.appendChild(ta);
-        break;
-      }
-      case 'boolean': {
-        const toggleLabel = el('label', { class: 'toggle-switch', for: `block-${fieldName}-${index}-${bFieldName}` });
-        const input = el('input', {
-          type: 'checkbox',
-          id: `block-${fieldName}-${index}-${bFieldName}`,
-          onchange: e => updateBlockField(fieldName, index, bFieldName, e.target.checked),
-        });
-        if (bVal) input.setAttribute('checked', 'true');
-        toggleLabel.appendChild(input);
-        toggleLabel.appendChild(el('span', { class: 'toggle-track' }));
-        toggleLabel.appendChild(el('span', { class: 'toggle-thumb' }));
-        bGroup.appendChild(el('div', { class: 'field-bool' }, toggleLabel, el('span', { class: 'field-bool__label' }, bLabel)));
-        break;
-      }
-      case 'number': {
-        const input = el('input', {
-          class: 'field-input',
-          id: `block-${fieldName}-${index}-${bFieldName}`,
-          type: 'number',
-          value: bVal != null ? String(bVal) : '',
-          oninput: e => updateBlockField(fieldName, index, bFieldName, e.target.value === '' ? null : Number(e.target.value)),
-        });
-        bGroup.appendChild(input);
-        break;
-      }
-      case 'select': {
-        const sel = el('select', {
-          class: 'field-select',
-          id: `block-${fieldName}-${index}-${bFieldName}`,
-          onchange: e => updateBlockField(fieldName, index, bFieldName, e.target.value),
-        });
-        for (const choice of (bMeta.choices || [])) {
-          const opt = el('option', { value: choice }, choice);
-          if (bVal === choice) opt.setAttribute('selected', 'true');
-          sel.appendChild(opt);
-        }
-        bGroup.appendChild(sel);
-        break;
-      }
-      case 'json': {
-        const ta = el('textarea', {
-          class: 'field-textarea field-textarea--json',
-          id: `block-${fieldName}-${index}-${bFieldName}`,
-          oninput: e => {
-            try { updateBlockField(fieldName, index, bFieldName, JSON.parse(e.target.value)); } catch { /* ignore */ }
-          },
-        });
-        ta.value = bVal != null ? JSON.stringify(bVal, null, 2) : '';
-        bGroup.appendChild(ta);
-        break;
-      }
-      default: { // input / image_picker / prosemirror → plain input in nested context
-        const input = el('input', {
-          class: 'field-input',
-          id: `block-${fieldName}-${index}-${bFieldName}`,
-          type: 'text',
-          placeholder: '',
-          value: typeof bVal === 'string' ? bVal : (bVal != null ? String(bVal) : ''),
-          oninput: e => updateBlockField(fieldName, index, bFieldName, e.target.value),
-        });
-        bGroup.appendChild(input);
-        break;
-      }
-    }
-
+    const labelEl = el('label', {
+      class: `field-label${required.includes(bFieldName) ? ' field-label--required' : ''}`,
+      for: id,
+    }, bLabel);
+    bGroup.appendChild(labelEl);
+    const input = buildNestedInput(id, bProp, { ...bMeta, label: bLabel }, bVal, onChange);
+    if (input.classList.contains('field-bool')) labelEl.hidden = true;  // the toggle carries its own label
+    bGroup.appendChild(input);
+    if (bMeta.help_text) bGroup.appendChild(el('span', { class: 'field-help' }, bMeta.help_text));
     body.appendChild(bGroup);
   }
 
@@ -375,7 +436,9 @@ function buildBlockCard(fieldName, blockData, blockSchema, index, total, availab
   // Toggle open/collapse on header click
   header.addEventListener('click', e => {
     if (e.target.closest('.block-card__controls')) return;
-    card.classList.toggle('is-open');
+    const open = card.classList.toggle('is-open');
+    if (open) openSet(fieldName).add(index);
+    else openSet(fieldName).delete(index);
   });
 
   return card;
