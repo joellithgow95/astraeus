@@ -1,6 +1,6 @@
 # ADR 026 — Collected data as its own documents; posts reference slices of it
 
-**Status:** Proposed. Supersedes nothing: it changes how an application models what its gateways collect, not
+**Status:** Accepted 2026-10-28 (built in joellithgow.com; see *Outcome*). Supersedes nothing: it changes how an application models what its gateways collect, not
 the gateway framework ([ADR 015](015-starlette-cms-gateways.md), [ADR 023](023-gateway-state-and-publishing.md)),
 and builds on `DocumentRef` ([ADR 010](010-document-references.md)).
 **Date:** 2026-10-27
@@ -169,3 +169,33 @@ slice validator and the gateway rewrite in joellithgow against the same.
 7. **Where the compose routine runs:** a hermes cron, or a CronJob in jlithgow-ops calling a `gateways compose`
    command? (Leaning: CronJob, versioned and agent-free.)
 8. **`featured`:** drop it from `blog_post`, or give it a use?
+
+## Outcome (2026-10-28)
+
+Built and live on joellithgow.com. The open questions were settled as follows, and the build differs from the
+Decision above in these places:
+
+1. **Detail pages:** every post has one; `post_type` and `has_detail_page` are both gone. The feed card shows the
+   excerpt, or the whole body when the post is short.
+2. **Monthly posts:** a draft in Staging. A CronJob runs a compose-only job on the 1st; it never syncs and never
+   publishes. A separate daily CronJob syncs both gateways (`since_last_sync`), so the month is already collected.
+3. **Existing months and outings:** converted one-to-one into `blog_post`s with slices on the same slugs; the old
+   types and gateways are removed.
+4. **Definitions on the feed:** only through posts. A definition holds the term and its sources; the owner's own
+   take goes in the post that picks it. (Removing the per-definition feed card is still to be built.)
+5. **`/blog/music` and `/blog/nature`:** browse all the data by month and by day.
+6. **Link groups:** plain tags.
+7. **Where the compose routine runs:** a CronJob in jlithgow-ops (`python -m cms.compose_music_month`), not a
+   `gateways compose` command.
+8. **`featured`:** kept in the schema, still unread.
+
+**Slice shape.** Instead of one slice with a `source` key, each source has its own block type in a `ListField` of
+blocks: `music_range`, `nature_range`, `music_picks`, `nature_picks`, `definition_picks`, `link_picks`,
+`links_by_tag`. The CMS then validates each kind on save with ordinary block validation, and picked refs are lists
+of `DocumentRef` checked for existence and type. The slice stays an application block set, not an Astraeus field
+type, as §3 left open.
+
+**Still to come:** moving the posts' embedded `links` into `link` documents, and the editor's pickers for slices
+(the multi-ref picker exists; a slice editor and paste-a-URL link creation do not). The outing suggestion helper
+(§4) is not started.
+

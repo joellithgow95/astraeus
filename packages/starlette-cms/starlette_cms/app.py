@@ -172,7 +172,7 @@ class CMS:
     # Document registration
     # ------------------------------------------------------------------
 
-    def document(self, name: str, *, group: str | None = None):
+    def document(self, name: str, *, group: str | None = None, label: str | None = None):
         """Register a document type::
 
             @cms.document("page")
@@ -187,6 +187,13 @@ class CMS:
 
             @cms.document("spotify_like", group="Data")
             class SpotifyLike: ...
+
+        *label* is the name the editor shows for the type in place of one made from
+        *name* (``/api/schema`` reports it too). The type's name, used by the API and
+        stored on every document, stays as it is::
+
+            @cms.document("link", label="Bookmarks")
+            class Link: ...
         """
 
         # Fields that exist as top-level columns on CMSDocument — defining them
@@ -216,7 +223,7 @@ class CMS:
             self._document_types[name] = model
             # Also register in the block registry so /api/schema includes document types
             model.__block_type__ = name
-            self.registry.register_block(model, override=True, group=group)
+            self.registry.register_block(model, override=True, group=group, label=label)
             return model
 
         return decorator
