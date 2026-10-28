@@ -2,7 +2,9 @@
 
 Changesets group multiple documents for atomic publish.  A single webhook
 event (``changeset.published``) fires after all documents in the changeset
-are published, rather than one event per document.
+are published, rather than one event per document. That includes staged
+deletions: they are listed in the event's ``deleted_document_ids`` and fire no
+``document.deleted`` of their own.
 """
 
 from __future__ import annotations
@@ -156,9 +158,13 @@ async def _fire_changeset_webhook(
     title: str,
     doc_ids: list[str],
     now: datetime,
+    deleted_ids: list[str] | None = None,
 ) -> None:
     """
     Deliver *event* to all matching active webhooks.
+
+    *doc_ids* is every document the changeset held; *deleted_ids* are the ones
+    whose staged deletion it carried out (they no longer exist).
 
     Piccolo doesn't support JSON-contains queries on SQLite, so we filter in Python.
     """
@@ -172,6 +178,7 @@ async def _fire_changeset_webhook(
         "title": title,
         "document_ids": doc_ids,
         "document_count": len(doc_ids),
+        "deleted_document_ids": deleted_ids or [],
         "timestamp": now.isoformat(),
     }
 
@@ -239,6 +246,7 @@ async def _publish_changeset_logic(changeset_id: str, cms: "CMS") -> dict[str, A
             raise ValueError(f"{name!r} can't be published — {error}")
 
     # Publish each document, promoting draft_body if present
+    deleted_ids: list[str] = []
     for doc_id in doc_ids:
         doc_rows = await CMSDocument.select().where(CMSDocument.id == doc_id).run()
         if not doc_rows:
@@ -282,11 +290,9 @@ async def _publish_changeset_logic(changeset_id: str, cms: "CMS") -> dict[str, A
                 .run()
             )
 
-            loop = asyncio.get_running_loop()
-            from starlette_cms.api.webhooks import fire_event
-            loop.create_task(
-                fire_event(cms, "document.deleted", doc_id, doc_row["doc_type"], doc_row.get("slug", ""))
-            )
+            # No document.deleted here: like the publishes, the deletion is
+            # reported once, in the changeset.published event below.
+            deleted_ids.append(doc_id)
             continue
 
         # Build update fields — default to publishing (backward compat)
@@ -360,6 +366,7 @@ async def _publish_changeset_logic(changeset_id: str, cms: "CMS") -> dict[str, A
             changeset["title"],
             doc_ids,
             now,
+            deleted_ids=deleted_ids,
         )
     )
 
