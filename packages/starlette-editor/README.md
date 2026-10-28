@@ -185,13 +185,15 @@ The changeset panel, chat panel, publish drawer and toasts are written against t
 | `RichTextField` | ProseMirror rich text editor |
 | `TextField` | `<input type="text">` (or `<textarea>` for long-name fields) |
 | `ImageField` | Mediakit iframe picker (falls back to text input) |
-| `ListField` / `BlockField` | Block canvas with drag-and-drop reorder |
+| `ListField` / `BlockField` | Block canvas: a card per block with move up/down; the add menu lists each block type with its docstring. A collapsed card says what it holds (`2026-10-01 – 2026-10-31`, `Links: 3`, a tag); a new card opens, and open cards stay open across a re-render. Fields inside a card get the same widgets as at the top level (dates, tags, references), with their label and help text |
 | `SelectField` | `<select>` dropdown |
 | `NumberField` | `<input type="number">` with min/max |
 | `BoolField` | Toggle switch |
 | `DocumentRef` | `<select>` of documents of `block_type` (text input when untyped) |
-| `ListField(DocumentRef(...))` | A row per referenced document (move up/down, remove; an ID whose document is gone is shown as missing); search box adds by title (`?q=`). Also inside block cards |
+| `ListField(DocumentRef(...))` | A row per referenced document (move up/down, remove; an ID whose document is gone is shown as missing); search box adds by title (`?q=`). Also inside block cards. When the target type has a `URLField` (a `link`), pasting a URL no document holds offers "Create link for this URL": a short form (the URL, a title made from it, today for a date, any other required text) that saves a draft in the active changeset, else the default one, and adds it |
 | `TagsField` | Chips; type-ahead from `GET /api/tags`; typed tags lowercased and hyphenated |
+| `TagField` | The same input holding one chip; suggestions come from the `suggest_from` type |
+| `DateField` | `<input type="date">`; cleared, an optional date is stored as null |
 | `LinksField` | A card per link (URL, title, description, date, tag chips); paste a URL to add, move up/down, remove |
 | `JSONField` | `<textarea>` with JSON pretty-printing |
 

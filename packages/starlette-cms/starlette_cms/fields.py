@@ -249,6 +249,53 @@ class TagsField(_BaseField):
 
 
 @dataclass
+class TagField(_BaseField):
+    """One tag string, picked from the tags already used on another type.
+
+    For a field that names a group of documents by tag, such as a post's
+    "every link tagged developer-blog" slice. ``suggest_from`` is the document
+    type whose tags the editor offers (``GET /api/tags``), and
+    ``suggest_field`` the field on it (default ``tags``). As with
+    ``TagsField``, the editor lowercases and hyphenates what you type and the
+    API stores the value as written.
+
+    Examples::
+
+        tag: str = TagField(required=True, suggest_from="link")
+    """
+
+    suggest_from: str | None = None
+    suggest_field: str = "tags"
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "tag"
+        if self.suggest_from:
+            m["suggest_from"] = self.suggest_from
+            m["suggest_field"] = self.suggest_field
+        return m
+
+
+@dataclass
+class DateField(_BaseField):
+    """A calendar date, stored as a ``YYYY-MM-DD`` string.
+
+    Checked on write: ``2026-02-30`` or ``Oct 1`` fails with a 422 instead of
+    reaching a site build. The editor shows a date picker.
+
+    Examples::
+
+        from_date: str = DateField(required=True)
+        date_added: str | None = DateField()
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "date"
+        return m
+
+
+@dataclass
 class LinksField(_BaseField):
     """A list of external links, each ``{url, title, description, date_added, tags}``.
 

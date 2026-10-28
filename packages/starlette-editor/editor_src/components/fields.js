@@ -6,7 +6,7 @@ import { humanizeFieldName, getDefaultValue, $ as domId, el } from '../utils.js'
 import { buildDocumentRefList } from './document-ref-list.js'
 import { buildDocumentRefPicker } from './document-ref-picker.js'
 import { buildLinksInput } from './links-input.js'
-import { buildTagsInput } from './tags-input.js'
+import { buildTagInput, buildTagsInput } from './tags-input.js'
 
 /**
  * Determine what kind of UI widget to use for a field.
@@ -14,7 +14,7 @@ import { buildTagsInput } from './tags-input.js'
  * Returns one of: 'prosemirror' | 'textarea' | 'input' | 'number'
  *                 | 'boolean' | 'select' | 'json' | 'block_canvas'
  *                 | 'image_picker' | 'document_ref' | 'document_ref_list'
- *                 | 'tags' | 'links'
+ *                 | 'tags' | 'tag' | 'date' | 'links'
  *
  * Explicit field_type from cms:field_meta takes precedence over all
  * heuristics. Heuristic fallbacks are kept for schemas that pre-date
@@ -39,6 +39,8 @@ export function fieldWidget(name, prop, meta) {
   if (ft === 'document_ref') return 'document_ref';
   if (ft === 'document_ref_list') return 'document_ref_list';
   if (ft === 'tags')         return 'tags';
+  if (ft === 'tag')          return 'tag';
+  if (ft === 'date')         return 'date';
   if (ft === 'links')        return 'links';
   // url, text → fall through to heuristics below
 
@@ -70,6 +72,26 @@ export function fieldWidget(name, prop, meta) {
   if (type === 'string' && isLong) return 'textarea';
 
   return 'input';
+}
+
+/**
+ * A native date picker for a DateField. The value stays a `YYYY-MM-DD`
+ * string, which is what `<input type="date">` reads and writes; cleared, it
+ * is null, so an optional date is left out rather than stored as ''.
+ *
+ * @param {string} id
+ * @param {*} value
+ * @param {(value: string|null) => void} onChange
+ * @returns {HTMLInputElement}
+ */
+export function buildDateInput(id, value, onChange) {
+  return el('input', {
+    class: 'field-input field-input--date',
+    id,
+    type: 'date',
+    value: typeof value === 'string' ? value.slice(0, 10) : '',
+    oninput: e => onChange(e.target.value || null),
+  });
 }
 
 /**
@@ -228,6 +250,21 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
         // a missing or empty list but not null.
         onChange: tags => onFieldChange(name, tags),
       }));
+      break;
+    }
+
+    case 'tag': {
+      group.appendChild(buildTagInput({
+        id: `field-${name}`,
+        value: currentVal,
+        meta,
+        onChange: tag => onFieldChange(name, tag),
+      }));
+      break;
+    }
+
+    case 'date': {
+      group.appendChild(buildDateInput(`field-${name}`, currentVal, v => onFieldChange(name, v)));
       break;
     }
 
