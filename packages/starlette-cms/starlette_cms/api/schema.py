@@ -14,7 +14,9 @@ if TYPE_CHECKING:
     from starlette_cms.app import CMS
 
 
-def _block_schema(model: type, block_name: str, group: str | None = None) -> dict[str, Any]:
+def _block_schema(
+    model: type, block_name: str, group: str | None = None, label: str | None = None
+) -> dict[str, Any]:
     """
     Return the JSON Schema for a block model, augmented with ``cms:field_meta``
     per field where present.
@@ -40,6 +42,8 @@ def _block_schema(model: type, block_name: str, group: str | None = None) -> dic
         result["field_meta"] = field_meta_map
     if group:
         result["group"] = group
+    if label:
+        result["label"] = label
     return result
 
 
@@ -53,7 +57,9 @@ def make_schema_routes(cms: CMS) -> list[Route]:
 
         blocks = cms.registry.all()
         return JSONResponse({
-            name: _block_schema(model, name, cms.registry.get_registration(name).group)
+            name: _block_schema(
+                model, name, (reg := cms.registry.get_registration(name)).group, reg.label
+            )
             for name, model in blocks.items()
         })
 
@@ -69,11 +75,8 @@ def make_schema_routes(cms: CMS) -> list[Route]:
                 {"error": f"Block type {block_type!r} is not registered"},
                 status_code=404,
             )
-        return JSONResponse(
-            _block_schema(
-                blocks[block_type], block_type, cms.registry.get_registration(block_type).group
-            )
-        )
+        reg = cms.registry.get_registration(block_type)
+        return JSONResponse(_block_schema(blocks[block_type], block_type, reg.group, reg.label))
 
     async def get_schema_version(request: Request) -> JSONResponse:
         from starlette_cms import __version__
