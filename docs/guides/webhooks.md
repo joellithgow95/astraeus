@@ -23,6 +23,7 @@ curl -X POST http://localhost:8000/cms/api/webhooks \
 | `document.deleted` | A document is deleted via `DELETE /api/documents/{id}` |
 | `document.published` | A document is published (including singleton publishes) |
 | `document.unpublished` | A document is unpublished |
+| `changeset.published` | A changeset is published. One event for the whole changeset, with `changeset_id`, `title`, `document_ids`, `document_count` and `deleted_document_ids` (its staged deletions). The documents it publishes or deletes fire no `document.*` event of their own |
 
 ## Payload shape
 
