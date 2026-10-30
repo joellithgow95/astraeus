@@ -48,6 +48,15 @@ const BY_TAG = {
   },
   required: ['tag'],
 }
+const BY_TAGS = {
+  description: 'Every link with any of these tags.',
+  properties: {
+    block_type: { const: 'links_by_tags', type: 'string' },
+    tags: { type: 'array', items: { type: 'string' },
+      'cms:field_meta': { field_type: 'tags', suggest_from: 'link', suggest_field: 'tags' } },
+  },
+  required: ['tags'],
+}
 const PICKS = {
   properties: {
     block_type: { const: 'link_picks', type: 'string' },
@@ -55,11 +64,11 @@ const PICKS = {
       'cms:field_meta': { field_type: 'document_ref_list', ref_block_type: 'link', label: 'Links' } },
   },
 }
-const POST_SCHEMA = { $defs: { MusicRange: RANGE, LinksByTag: BY_TAG, LinkPicks: PICKS } }
+const POST_SCHEMA = { $defs: { MusicRange: RANGE, LinksByTag: BY_TAG, LinksByTags: BY_TAGS, LinkPicks: PICKS } }
 const DATA_PROP = {
   anyOf: [{
     type: 'array',
-    items: { oneOf: [{ $ref: '#/$defs/MusicRange' }, { $ref: '#/$defs/LinksByTag' }, { $ref: '#/$defs/LinkPicks' }] },
+    items: { oneOf: [{ $ref: '#/$defs/MusicRange' }, { $ref: '#/$defs/LinksByTag' }, { $ref: '#/$defs/LinksByTags' }, { $ref: '#/$defs/LinkPicks' }] },
   }, { type: 'null' }],
 }
 const LINK_SCHEMA = {
@@ -125,6 +134,11 @@ describe('blockSummary', () => {
     expect(blockSummary({ refs: ['a', 'b', 'c'] }, PICKS)).toBe('Links: 3')
   })
 
+  it('lists the tags of a several-tag slice', () => {
+    expect(blockSummary({ tags: ['art', 'design'] }, BY_TAGS)).toBe('art, design')
+    expect(blockSummary({ tags: [] }, BY_TAGS)).toBe('')
+  })
+
   it('shows a tag as written, and nothing for an empty block', () => {
     expect(blockSummary({ tag: 'developer-blog' }, BY_TAG)).toBe('developer-blog')
     expect(blockSummary({ tag: '' }, BY_TAG)).toBe('')
@@ -154,6 +168,13 @@ describe('slice cards', () => {
   it('offer a tag slice the tags used on the source type', async () => {
     mountCanvas([{ block_type: 'links_by_tag', tag: '' }])
     expect(fetchTags).toHaveBeenCalledWith('link', 'tags')
+  })
+
+  it('offer a several-tag slice the tags used on the source type', async () => {
+    fetchTags.mockClear()
+    const canvas = mountCanvas([{ block_type: 'links_by_tags', tags: ['art'] }])
+    expect(fetchTags).toHaveBeenCalledWith('link', 'tags')
+    expect([...canvas.querySelectorAll('.tag-chip__label')].map(c => c.textContent)).toEqual(['art'])
   })
 
   it('open a newly added block, and keep it open across re-renders', () => {

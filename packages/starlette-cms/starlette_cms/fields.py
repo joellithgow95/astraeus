@@ -237,14 +237,24 @@ class TagsField(_BaseField):
     what it sent, and a stored value it did not send would rewrite the
     document on every sync.
 
+    ``suggest_from`` offers the tags of another type instead, as on
+    ``TagField``: a slice naming several link tags suggests from ``link``.
+
     Examples::
 
         tags: list | None = TagsField()
+        tags: list = TagsField(suggest_from="link")
     """
+
+    suggest_from: str | None = None
+    suggest_field: str = "tags"
 
     def field_meta(self) -> dict[str, Any]:
         m = super().field_meta()
         m["field_type"] = "tags"
+        if self.suggest_from:
+            m["suggest_from"] = self.suggest_from
+            m["suggest_field"] = self.suggest_field
         return m
 
 
