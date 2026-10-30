@@ -217,7 +217,7 @@ function blockFields(blockSchema) {
  * One line saying what a block holds, for its collapsed card: a slice reads
  * "2026-10-01 – 2026-10-31", "Songs: 3" or "developer-blog" without being
  * opened. Dates run together as a range; picked references are counted;
- * other short text is shown as it is. '' when nothing is filled in.
+ * tags are listed; other short text is shown as it is. '' when nothing is filled in.
  *
  * @param {object} blockData
  * @param {object} blockSchema
@@ -230,6 +230,8 @@ export function blockSummary(blockData, blockSchema) {
     const v = blockData?.[k]
     if (meta.field_type === 'date' || (typeof v === 'string' && ISO_DATE.test(v))) {
       if (typeof v === 'string' && v) dates.push(v)
+    } else if (meta.field_type === 'tags' && Array.isArray(v)) {
+      if (v.length) parts.push(v.join(', '))
     } else if (Array.isArray(v)) {
       if (v.length) parts.push(`${meta.label || humanizeFieldName(k)}: ${v.length}`)
     } else if (typeof v === 'string' && v.trim() && meta.field_type !== 'document_ref') {
@@ -284,7 +286,16 @@ function buildNestedInput(id, prop, meta, value, onChange) {
   }
   if (ft === 'date') return buildDateInput(id, value, onChange)
   if (ft === 'tag') return buildTagInput({ id, value, meta, onChange })
-  if (ft === 'tags') return buildTagsInput({ id, value, onChange })
+  if (ft === 'tags') {
+    return buildTagsInput({
+      id,
+      value,
+      onChange,
+      docType: meta.suggest_from,
+      field: meta.suggest_field || 'tags',
+      placeholder: meta.placeholder ? `e.g. ${meta.placeholder}` : undefined,
+    })
+  }
 
   let widget = fieldWidget(id, prop, meta)
   // No nested canvases or rich text inside a card: edit those as JSON.

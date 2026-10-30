@@ -244,8 +244,8 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
       group.appendChild(buildTagsInput({
         id: `field-${name}`,
         value: currentVal,
-        docType: state.activeType,
-        field: name,
+        docType: meta.suggest_from || state.activeType,
+        field: meta.suggest_from ? (meta.suggest_field || 'tags') : name,
         // [] rather than null: a site schema such as zod's .optional() takes
         // a missing or empty list but not null.
         onChange: tags => onFieldChange(name, tags),

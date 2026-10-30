@@ -81,6 +81,15 @@ def test_tag_field_meta_names_the_suggestion_source():
     assert TagField().field_meta() == {"field_type": "tag"}
 
 
+def test_tags_field_meta_can_suggest_from_another_type():
+    assert TagsField(suggest_from="link").field_meta() == {
+        "field_type": "tags",
+        "suggest_from": "link",
+        "suggest_field": "tags",
+    }
+    assert TagsField().field_meta() == {"field_type": "tags"}
+
+
 async def test_schema_carries_meta_inside_blocks(dt_client):
     schema = (await dt_client.get("/api/schema")).json()["post"]["schema"]
     rng = schema["$defs"]["_Range"]["properties"]["from_date"]["cms:field_meta"]
