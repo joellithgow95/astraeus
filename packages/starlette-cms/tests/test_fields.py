@@ -18,6 +18,7 @@ from starlette_cms.fields import (
     TextField,
     URLField,
 )
+from starlette_cms.model_builder import _make_field
 
 # ---------------------------------------------------------------------------
 # ListField
@@ -148,12 +149,12 @@ def test_doodle_field_meta_passes_through_base_attrs():
 
 
 def test_doodle_field_optional_defaults_to_none():
-    py_type, kwargs = DoodleField().to_pydantic(annotation=list, optional=True)
+    py_type, info = _make_field(list, DoodleField(), {})
     assert py_type == (list[dict] | None)
-    assert kwargs == {"default": None}
+    assert info.default is None
 
 
 def test_doodle_field_required_defaults_to_empty_list():
-    py_type, kwargs = DoodleField(required=True).to_pydantic(annotation=list, optional=False)
+    py_type, info = _make_field(list, DoodleField(required=True), {})
     assert py_type == list[dict]
-    assert kwargs == {"default_factory": list}
+    assert info.default_factory is list
