@@ -5,6 +5,7 @@ Routes added by ``make_collab_routes(cms)``:
   - WS  /api/documents/{document_id}/collab
   - GET  /api/documents/{document_id}/history
   - GET  /api/documents/{document_id}/history/{version}
+  - POST /api/documents/{document_id}/edit
 """
 
 from __future__ import annotations
@@ -22,14 +23,24 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from starlette_cms.api.changesets import link_document_to_changeset
-from starlette_cms.auth import check_session_auth
-from starlette_cms.collab import collab_room
+from starlette_cms.api.webhooks import fire_event
+from starlette_cms.auth import check_session_auth, require_auth
+from starlette_cms.body_edits import EditError
+from starlette_cms.collab import (
+    BASELINE_STEP_TYPE,
+    SERVER_CLIENT_PREFIX,
+    collab_room,
+)
 from starlette_cms.tables import CMSDocument
 
 if TYPE_CHECKING:
     from starlette_cms.app import CMS
 
 log = structlog.get_logger(__name__)
+
+
+#: ``client_id`` of the marker row a session writes before its first step.
+_BASELINE_CLIENT_ID = f"{SERVER_CLIENT_PREFIX}{BASELINE_STEP_TYPE}"
 
 
 def _is_editable_rich_text(cms: CMS, doc_type: str, field: str) -> bool:
@@ -46,6 +57,15 @@ def _is_editable_rich_text(cms: CMS, doc_type: str, field: str) -> bool:
     if meta.get("field_type") != "rich_text":
         return False
     return field not in getattr(model, "__immutable_fields__", [])
+
+
+def rich_text_fields(cms: CMS, doc_type: str) -> list[str]:
+    """The editable rich-text fields of *doc_type*, in declaration order."""
+    try:
+        model = cms.registry.get(doc_type)
+    except Exception:  # noqa: BLE001 - unknown type
+        return []
+    return [name for name in model.model_fields if _is_editable_rich_text(cms, doc_type, name)]
 
 
 def _check_ws_auth(websocket: WebSocket, cms: CMS) -> bool:
@@ -263,6 +283,7 @@ def make_collab_routes(cms: CMS) -> list:
                     # Client sends its current doc state after applying steps locally
                     updated_doc = data.get("doc")
 
+                    persist_failed = False
                     async with authority._lock:
                         base_version = authority._version
                         result = authority.apply_steps(
@@ -273,25 +294,30 @@ def make_collab_routes(cms: CMS) -> list:
                             if updated_doc is not None or authority._schema is None
                             else None,
                         )
+                        if result.accepted:
+                            # Persist under the lock: two batches persisted out of
+                            # order would store the older document last.
+                            try:
+                                await authority._persist_steps(steps, step_client_id, base_version)
+                            except Exception:
+                                persist_failed = True
+                                # Don't drop the connection, but don't hide it either:
+                                # the in-memory version is now ahead of what is stored.
+                                log.exception(
+                                    "collab_persist_failed",
+                                    document_id=document_id,
+                                    field=field,
+                                    version=result.version,
+                                )
 
                     if result.accepted:
-                        # Persist asynchronously (fire-and-forget is fine here;
-                        # in-memory state is already updated)
-                        try:
-                            await authority._persist_steps(steps, step_client_id, base_version)
-                        except Exception:
-                            # Don't drop the connection, but don't hide it either: the
-                            # in-memory version is now ahead of what is stored.
-                            log.exception(
-                                "collab_persist_failed",
-                                document_id=document_id,
-                                field=field,
-                                version=result.version,
-                            )
+                        if persist_failed:
+                            # The editor shows this; it used to ignore it.
                             await websocket.send_json(
                                 {
                                     "type": "error",
                                     "code": "persist_failed",
+                                    "message": "Edits were accepted but could not be stored",
                                     "version": result.version,
                                 }
                             )
@@ -457,7 +483,10 @@ def make_collab_routes(cms: CMS) -> list:
                 CMSStep.version,
                 CMSStep.created_at,
             )
-            .where(CMSStep.document_id == document_id)
+            .where(
+                CMSStep.document_id == document_id,
+                CMSStep.client_id != _BASELINE_CLIENT_ID,
+            )
             .order_by(CMSStep.version, ascending=False)
             .limit(limit * 20)  # fetch extra for bucketing
         )
@@ -538,6 +567,10 @@ def make_collab_routes(cms: CMS) -> list:
         baseline here is the *published* body while steps apply to ``draft_body``;
         and because ``draft_version`` resets on publish without ``cms_steps`` being
         cleared, a version can match rows from several publish cycles at once.
+
+        Sessions now write a baseline row before their first step (returned in
+        ``baselines``), and rows come back in the order they were written, so
+        :mod:`starlette_cms.collab_replay` can rebuild a session exactly.
         """
         from starlette_cms.auth import require_auth
         from starlette_cms.tables import CMSDocument, CMSStep
@@ -566,24 +599,42 @@ def make_collab_routes(cms: CMS) -> list:
         baseline_body = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
 
         # Fetch steps up to (and including) the requested version
+        # In the order they were written: versions repeat after a publish or a
+        # discard resets draft_version, so ordering by version interleaves cycles.
         step_rows = (
             await CMSStep.select(CMSStep.version, CMSStep.step_data, CMSStep.client_id)
             .where(
                 CMSStep.document_id == document_id,
                 CMSStep.version <= target_version,
             )
-            .order_by(CMSStep.version, ascending=True)
+            .order_by(CMSStep._meta.primary_key, ascending=True)
             .run()
         )
 
         steps = []
+        versions: list[int] = []
+        client_ids: list[str] = []
+        baselines: list[dict] = []
         for row in step_rows:
             raw = row.get("step_data", "{}")
             try:
                 step_dict = json.loads(raw) if isinstance(raw, str) else raw
             except (json.JSONDecodeError, TypeError):
                 step_dict = {}
+            if isinstance(step_dict, dict) and step_dict.get("stepType") == BASELINE_STEP_TYPE:
+                # Where a session's steps start; not a step. See collab_replay.
+                baselines.append(
+                    {
+                        "index": len(steps),
+                        "version": row["version"],
+                        "field": step_dict.get("field"),
+                        "doc": step_dict.get("doc"),
+                    }
+                )
+                continue
             steps.append(step_dict)
+            versions.append(row["version"])
+            client_ids.append(row["client_id"])
 
         return JSONResponse(
             {
@@ -592,15 +643,125 @@ def make_collab_routes(cms: CMS) -> list:
                 "step_count": len(steps),
                 "baseline_body": baseline_body,
                 "steps": steps,
+                "versions": versions,
+                "client_ids": client_ids,
+                "baselines": baselines,
                 "note": (
-                    "Step replay is performed client-side using the returned steps. "
-                    "Apply each step in order to baseline_body to reconstruct the "
-                    "document state at the requested version."
+                    "Steps are in the order they were written. Each entry of "
+                    "`baselines` is the document a session's steps start from "
+                    "(`index` into `steps`); apply the steps after it in order. "
+                    "baseline_body is the published body, which is only right for "
+                    "steps with no baseline before them and no write in between. "
+                    "starlette_cms.collab_replay does this and reports gaps."
                 ),
             }
         )
 
+    # ------------------------------------------------------------------
+    # Edit a rich-text field, through its authority (ADR 027)
+    # ------------------------------------------------------------------
+
+    async def edit_content(request: Request) -> JSONResponse:
+        """Apply anchored edits to a document's rich-text field.
+
+        The way to change a field someone may have open in the editor: each
+        edit is resolved against the live document and goes through the
+        field's collab authority as a step, so open editors show it at once,
+        with their user's typing intact. All or nothing. Body::
+
+            {"edits": [{"find": "old text", "replace": "new **text**"},
+                       {"insert": "## New\\n\\nSection", "after_heading": "Intro"}]}
+
+        ``field`` defaults to the type's only rich-text field. See
+        :mod:`starlette_cms.body_edits` for the edits. Answers with the new
+        ``draft_version``; 422 names the edit that failed.
+        """
+        if (err := await require_auth(request, cms)) is not None:
+            return err
+        document_id = request.path_params["document_id"]
+        try:
+            payload = await request.json()
+        except Exception:  # noqa: BLE001
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "Body must be a JSON object"}, status_code=400)
+
+        rows = (
+            await CMSDocument.select(CMSDocument.doc_type, CMSDocument.slug)
+            .where(CMSDocument.id == document_id)
+            .run()
+        )
+        if not rows:
+            return JSONResponse({"error": "Document not found"}, status_code=404)
+        doc_type = rows[0]["doc_type"]
+        if doc_type in cms.registry and cms.registry.is_append_only(doc_type):
+            return JSONResponse(
+                {"error": "append_only documents cannot be modified"}, status_code=405
+            )
+
+        fields = rich_text_fields(cms, doc_type)
+        field = payload.get("field")
+        if field is None:
+            if len(fields) != 1:
+                return JSONResponse(
+                    {"error": "Name the rich-text field to edit", "fields": fields},
+                    status_code=422,
+                )
+            field = fields[0]
+        elif field not in fields:
+            return JSONResponse(
+                {"error": f"{field!r} is not an editable rich-text field", "fields": fields},
+                status_code=422,
+            )
+
+        edits = payload.get("edits")
+        try:
+            version = await cms.collab_manager.edit_content(
+                document_id,
+                field,
+                edits if isinstance(edits, list) else [],
+                source=str(payload.get("source") or "edit")[:40],
+            )
+        except ImportError:
+            return JSONResponse(
+                {"error": "Editing needs the collab-verify extra on the CMS"}, status_code=501
+            )
+        except EditError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        except KeyError:
+            return JSONResponse({"error": "Document not found"}, status_code=404)
+
+        asyncio.get_running_loop().create_task(
+            fire_event(cms, "document.updated", document_id, doc_type, rows[0].get("slug", ""))
+        )
+        headers: dict[str, str] = {}
+        created = await link_document_to_changeset(
+            document_id,
+            doc_type,
+            request.headers.get("x-active-changeset-id"),
+            cms.default_changeset,
+        )
+        if created is not None:
+            headers["X-Changeset-Id"], headers["X-Changeset-Title"] = created
+        open_editors = cms.collab_manager._connections.get(collab_room(document_id, field), set())
+        return JSONResponse(
+            {
+                "document_id": document_id,
+                "field": field,
+                "edits": len(edits) if isinstance(edits, list) else 0,
+                "draft_version": version,
+                "open_editors": len(open_editors),
+            },
+            headers=headers or None,
+        )
+
     return [
+        Route(
+            "/api/documents/{document_id}/edit",
+            endpoint=edit_content,
+            methods=["POST"],
+            name="collab_edit",
+        ),
         WebSocketRoute("/api/events", endpoint=events_ws),
         WebSocketRoute("/api/documents/{document_id}/collab", endpoint=collab_ws),
         Route(

@@ -42,6 +42,7 @@ import {
   saveDocument,
   togglePublish,
   deleteActiveDoc,
+  hasUnsavedBodyEdits,
 } from './standard/actions.js'
 import { el } from './utils.js'
 
@@ -143,7 +144,7 @@ setRenderFn(render);
 // Warn before leaving the page with unsaved edits. Browsers ignore any custom
 // message and show their own; preventDefault() is what triggers the prompt.
 window.addEventListener('beforeunload', e => {
-  if (!state.isDirty) return;
+  if (!state.isDirty && !hasUnsavedBodyEdits()) return;
 
   e.preventDefault();
   e.returnValue = '';

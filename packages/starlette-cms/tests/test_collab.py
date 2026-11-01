@@ -239,10 +239,16 @@ async def test_steps_persisted_in_db(async_cms_with_doc):
 
     await authority._persist_steps([step], "client-persist", base_version)
 
-    step_rows = await CMSStep.select().where(CMSStep.document_id == doc_id).run()
-    assert len(step_rows) >= 1
-    assert step_rows[0]["client_id"] == "client-persist"
-    assert step_rows[0]["version"] == 1
+    step_rows = (
+        await CMSStep.select().where(CMSStep.document_id == doc_id).order_by(CMSStep.id).run()
+    )
+    # A baseline row first: the field and document the steps start from, so the
+    # log can be replayed (collab_replay).
+    baseline, step_row = step_rows
+    assert json.loads(baseline["step_data"])["stepType"] == "baseline"
+    assert baseline["version"] == 0
+    assert step_row["client_id"] == "client-persist"
+    assert step_row["version"] == 1
 
 
 # ---------------------------------------------------------------------------

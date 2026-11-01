@@ -322,7 +322,12 @@ def test_T5_a_failed_database_write_is_reported_to_the_client(server, monkeypatc
         ws.receive_json()
         ws.send_json({"type": "steps", "steps": [_insert(6, "!")], "clientID": "c", "version": 0})
         first = ws.receive_json()
-    assert first == {"type": "error", "code": "persist_failed", "version": 1}
+    assert first == {
+        "type": "error",
+        "code": "persist_failed",
+        "message": "Edits were accepted but could not be stored",
+        "version": 1,
+    }
 
 
 # ---------------------------------------------------------------------------

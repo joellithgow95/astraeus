@@ -98,6 +98,13 @@ uv run ruff format packages/
 - `mediakit` has no dependency on either CMS package
 - `starlette-cms` has an optional soft dependency on `mediakit` via the `MediaBackend` protocol — it never imports mediakit directly
 
+### Writing documents: every field is live (ADR 027)
+A document is written two ways: the **collab path** (steps applied in order by a rich-text field's `CollabAuthority` and broadcast to every editor) and the **CRUD path** (`PATCH /api/documents/{id}`). Which one a change takes depends on the field:
+- **Rich-text fields (post bodies) have one writer: the authority.** The editor sends steps over the WebSocket. Anything else sends **anchored edits** to `POST /api/documents/{id}/edit` (MCP `edit_document_body`): `{find, replace}`, `{section, replace}`, `{insert, after_heading | at}`, resolved against the live document, all or nothing. Never rewrite a whole body to change part of it.
+- A whole rich-text replace through PATCH must carry `base_version` (the `draft_version` read with `?draft=true`); a stale one is refused with 409, and one is required while an editor has the field open.
+- **Plain fields (title, tags, image, dates, refs) are last-writer-wins per field** and are meant to be live too: a change is broadcast to open editors (being built; until then they are plain PATCH). Lifecycle actions (publish, discard, changesets) stay commands, and any that changes a rich-text field must tell the authority (`CollabManager.apply_external_update`).
+- New code that writes rich text from outside the editor goes through `CollabManager` (`edit_content`, `apply_external_update`), never straight to `draft_body`.
+
 ### Testing
 - Every public function gets a test
 - **Anything that touches draft, publish, changeset or sync-state semantics is tested against a real in-process CMS** (below), never against mocked HTTP: a mock can only say what you told it the CMS does. `respx` is for faking *external* services (iNaturalist, Spotify) and for pinning the request shape of pure client plumbing
@@ -127,6 +134,7 @@ See `docs/roadmap.md` for the full phased plan and current progress.
 - Webhooks handle build triggers — no direct Netlify/Vercel integration
 - Content-addressed storage keys in mediakit (`originals/{sha256_prefix}/{filename}`)
 - Two-form block decorator: `@cms.block()` (immediate) vs `@block()` (deferred/standalone)
+- Every field is live: rich text through the collab authority (anchored edits from outside the editor), plain fields last-writer-wins per field (ADR 027, proposed)
 
 See `docs/decisions/` for the full rationale on each.
 
