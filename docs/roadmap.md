@@ -184,7 +184,8 @@ Together these establish Astraeus as a **governed data platform** — not just a
 - [x] `starlette-cms mcp serve --url {base_url} --api-key {key}` starts MCP server
 - [x] Tools: `list_documents`, `get_document`, `create_document`, `update_document`, `delete_document`, `publish_document`, `unpublish_document`, `list_block_types`, `get_block_schema`
 - [x] `edit_document_body` (anchored edits to a body through the collab authority), `get_document` reads the draft, `update_document` takes `base_version` (ADR 027)
-- [ ] Live plain fields: title, tags, image… broadcast per field, last-writer-wins; retire the Save button (ADR 027 §3)
+- [x] Live plain fields: title, tags, image… broadcast per field, last-writer-wins; Save button retired for existing documents (ADR 027 §3)
+- [ ] The embed receives other writers' plain-field changes live
 - [x] Changeset tools: `list_changesets`, `get_default_changeset`, `get_changeset`, `create_changeset`, `add_document_to_changeset`, `remove_document_from_changeset`, `publish_changeset`. Tested against a real in-process CMS (`build_mcp_server(..., transport=ASGITransport(...))`)
 - [x] Tool descriptions are agent-legible (explain what each arg does, what gets returned)
 - [x] Auth passed as `Authorization: Bearer {key}` header on every request

@@ -236,7 +236,11 @@ export function renderHeader(togglePublish, saveDocument, deleteActiveDoc) {
   titleEl.textContent = isNew ? `New ${typeLabel(state.activeType).replace(/s$/, '')}` : docTitle(doc || {});
   if (dirtyDot) dirtyDot.classList.toggle('is-visible', state.isDirty);
   if (publishWrap) publishWrap.style.display = doc ? '' : 'none';
-  if (saveBtn) saveBtn.style.display = '';
+  // An existing document saves itself, field by field (field-sync.js): it gets
+  // a status instead of a Save button. A new one still needs Create.
+  if (saveBtn) saveBtn.style.display = isNew ? '' : 'none';
+  const saveStatus = $('save-status');
+  if (saveStatus) saveStatus.style.display = isNew ? 'none' : '';
   if (deleteBtn) deleteBtn.style.display = doc ? '' : 'none';
 
   const isDraftDeleted = doc && doc.draft_deleted;
@@ -262,7 +266,7 @@ export function renderHeader(togglePublish, saveDocument, deleteActiveDoc) {
   // Save button state — disabled when staged for deletion
   if (saveBtn) {
     saveBtn.disabled = state.isSaving || !!isDraftDeleted;
-    saveBtn.textContent = state.isSaving ? 'Saving…' : 'Save';
+    saveBtn.textContent = state.isSaving ? 'Creating…' : 'Create';
   }
 
   // Delete button — toggle between "Delete" and "Cancel delete"

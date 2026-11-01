@@ -128,10 +128,14 @@ export async function createDocument(docType, body, slug = '') {
  * @param {{activeChangesetId?: string}} [options]
  * @returns {Promise<{data: object, headers: Headers}>}
  */
-export async function patchDocument(id, patch, { activeChangesetId } = {}) {
+export async function patchDocument(id, patch, { activeChangesetId, clientId } = {}) {
   const extraHeaders = {};
   if (activeChangesetId) {
     extraHeaders['X-Active-Changeset-Id'] = activeChangesetId;
+  }
+  // Lets this tab ignore the live-field broadcast of its own save (field-sync.js).
+  if (clientId) {
+    extraHeaders['X-Client-Id'] = clientId;
   }
   const res = await apiFetch(`/api/documents/${id}`, {
     method: 'PATCH',

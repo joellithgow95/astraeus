@@ -14,6 +14,7 @@
  */
 import { state, setState } from './state.js'
 import { fetchDocuments } from './api.js'
+import { applyRemoteFields } from './field-sync.js'
 
 export class DocumentEventsSubscriber {
   /**
@@ -81,6 +82,12 @@ export class DocumentEventsSubscriber {
     // Only document.* events carry document_type; refresh the list when the
     // event concerns the type the user is currently viewing.
     const event = msg.event || ''
+    // A plain field changed somewhere else: show it in the open document.
+    // The list refresh comes with the document.updated that follows.
+    if (event === 'document.fields') {
+      applyRemoteFields(msg)
+      return
+    }
     if (!event.startsWith('document.')) return
     if (!state.activeType || msg.document_type !== state.activeType) return
 

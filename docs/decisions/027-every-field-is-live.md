@@ -75,8 +75,11 @@ over MCP, scaffolds or fixes part of the same post, and the person watches it la
    over the document's live connection as the person types; the server stores it and broadcasts it, and
    every open editor updates that input. A PATCH from MCP or a script does the same broadcast. Two people
    typing in the same title at the same instant: the later write wins, as in Figma and Notion properties.
-   With every field live, the editor's Save button has nothing left to do and goes. *(Built in the
-   follow-up to the PR that adds this ADR; until then plain fields are saved by PATCH and not broadcast.)*
+   With every field live, the editor's Save button has nothing left to do and goes; a new document
+   still has Create. The broadcast is a `document.fields` event on the in-process event bus
+   (`/api/events`), tagged with the writer's `X-Client-Id` so a tab ignores its own echo, and never
+   part of a webhook payload, since webhooks go to outside URLs. A save the server refuses (a required
+   field left empty) is shown in the header and retried when the field changes, never dropped.
 
 4. **Reads return the draft.** MCP `get_document` reads `?draft=true` (what the editor shows) and its
    `draft_version`; `published=True` reads the live version.
@@ -91,7 +94,7 @@ over MCP, scaffolds or fixes part of the same post, and the person watches it la
 | Add, rewrite or delete text or sections in a body | `/edit` / `edit_document_body` |
 | Edit text a person is typing in | the editor (WebSocket), or anchored edits; never a PATCH |
 | Rewrite a whole body on purpose | PATCH with `base_version` from a draft read |
-| Change a title, tags, image, dates, refs | PATCH / `update_document` (broadcast live once 3. lands) |
+| Change a title, tags, image, dates, refs | PATCH / `update_document` (broadcast live) |
 | Publish, discard, move between changesets | the lifecycle endpoints |
 
 ## Consequences
@@ -117,6 +120,10 @@ over MCP, scaffolds or fixes part of the same post, and the person watches it la
   silently.
 - Last-writer-wins on plain fields can drop one of two simultaneous edits to the same short field. Both
   people see the result at once, so neither is surprised later.
+- A remote change to a field the person is typing in waits until they leave the form, and one to a
+  field they have changed and not yet saved is overridden by their save; that is last-writer-wins.
+- The inline editor on the published site (the embed) saves plain fields but does not yet receive other
+  writers' changes live; it shows them on reload.
 - The markdown converter (`starlette_cms.markdown_pm`) covers the editor's schema: headings, paragraphs,
   bold, italic, code, links, images, lists, quotes, rules and code blocks. Anything else (tables, HTML)
   arrives as raw text. starlette-chat still has its own converter, which drops links; moving it onto this

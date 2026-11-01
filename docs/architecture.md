@@ -186,7 +186,8 @@ starlette-editor     starlette-cms MCP
   (reads schema,       (create_document,
    renders UI,          edit_document_body,
    body: collab WS,     update_document,
-   PATCH plain fields)  publish_document)
+   plain fields: auto-  publish_document)
+   saved PATCH, live)
        │                      │
        └──────────┬───────────┘
                   ▼
@@ -205,8 +206,9 @@ editor streams body edits over the collab WebSocket, and an agent changes a body
 that the authority resolves against the live document and applies as steps, so a person with the
 post open sees them land and keeps their typing. A whole-body `update_document` must carry the
 `base_version` it read and is refused if the body has moved on. Plain fields (title, tags, image,
-dates, refs) are last-writer-wins per field; they are written with PATCH by both peers, to be
-broadcast live to open editors.
+dates, refs) are last-writer-wins per field: written with PATCH by both peers, each PATCH is
+broadcast to open editors as a `document.fields` event, and the shell saves a field on its own
+shortly after it changes, so there is no Save button for an existing document.
 
 ---
 

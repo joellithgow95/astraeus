@@ -874,6 +874,29 @@ def make_document_routes(cms: CMS) -> list[Route]:
         updated_rows = await CMSDocument.select().where(CMSDocument.id == doc_id).run()
         updated_row = updated_rows[0]
 
+        # Plain fields are live too, last writer wins per field (ADR 027): every
+        # open editor of this document is sent the values this PATCH set, so a
+        # title typed in one tab, or written over MCP, shows up in the others.
+        # Only on the in-process event bus, never in webhook payloads, which go
+        # to outside URLs and carry no draft content.
+        live_fields = {
+            name: merged_body.get(name)
+            for name in new_body_data
+            if name not in rich_text_fields(cms, doc_type)
+        }
+        if live_fields or "slug" in patch_data:
+            fields_event: dict[str, Any] = {
+                "event": "document.fields",
+                "document_id": doc_id,
+                "document_type": doc_type,
+                "fields": live_fields,
+                "client_id": request.headers.get("x-client-id"),
+                "draft_version": updated_row.get("draft_version") or 0,
+            }
+            if "slug" in patch_data:
+                fields_event["slug"] = updated_row.get("slug", "")
+            await cms.event_bus.broadcast(fields_event)
+
         loop = asyncio.get_running_loop()
         loop.create_task(
             fire_event(cms, "document.updated", doc_id, doc_type, updated_row.get("slug", ""))
