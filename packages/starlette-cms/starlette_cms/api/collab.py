@@ -5,6 +5,7 @@ Routes added by ``make_collab_routes(cms)``:
   - WS  /api/documents/{document_id}/collab
   - GET  /api/documents/{document_id}/history
   - GET  /api/documents/{document_id}/history/{version}
+  - POST /api/documents/{document_id}/insert
 """
 
 from __future__ import annotations
@@ -22,8 +23,14 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from starlette_cms.api.changesets import link_document_to_changeset
-from starlette_cms.auth import check_session_auth
-from starlette_cms.collab import BASELINE_STEP_TYPE, SERVER_CLIENT_PREFIX, collab_room
+from starlette_cms.api.webhooks import fire_event
+from starlette_cms.auth import check_session_auth, require_auth
+from starlette_cms.collab import (
+    BASELINE_STEP_TYPE,
+    SERVER_CLIENT_PREFIX,
+    InsertError,
+    collab_room,
+)
 from starlette_cms.tables import CMSDocument
 
 if TYPE_CHECKING:
@@ -50,6 +57,15 @@ def _is_editable_rich_text(cms: CMS, doc_type: str, field: str) -> bool:
     if meta.get("field_type") != "rich_text":
         return False
     return field not in getattr(model, "__immutable_fields__", [])
+
+
+def rich_text_fields(cms: CMS, doc_type: str) -> list[str]:
+    """The editable rich-text fields of *doc_type*, in declaration order."""
+    try:
+        model = cms.registry.get(doc_type)
+    except Exception:  # noqa: BLE001 - unknown type
+        return []
+    return [name for name in model.model_fields if _is_editable_rich_text(cms, doc_type, name)]
 
 
 def _check_ws_auth(websocket: WebSocket, cms: CMS) -> bool:
@@ -641,7 +657,126 @@ def make_collab_routes(cms: CMS) -> list:
             }
         )
 
+    # ------------------------------------------------------------------
+    # Insert into a rich-text field, through its authority (ADR 027)
+    # ------------------------------------------------------------------
+
+    async def insert_content(request: Request) -> JSONResponse:
+        """Insert markdown (or ProseMirror nodes) into a document's rich-text field.
+
+        The way to add to a field someone may have open in the editor: the
+        insert goes through the field's collab authority as one step, so it
+        lands in the live document and open editors show it at once, with
+        their user's typing intact. Body::
+
+            {"markdown": "## New section\\n\\nText", "heading": "Intro"}
+
+        ``markdown`` or ``content`` (a list of ProseMirror block nodes);
+        ``field`` (default: the type's only rich-text field); ``heading`` to
+        insert at the end of that section, else ``at``: ``"end"`` (default) or
+        ``"start"``. Answers with the new ``draft_version``.
+        """
+        if (err := await require_auth(request, cms)) is not None:
+            return err
+        document_id = request.path_params["document_id"]
+        try:
+            payload = await request.json()
+        except Exception:  # noqa: BLE001
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "Body must be a JSON object"}, status_code=400)
+
+        rows = await CMSDocument.select(CMSDocument.doc_type, CMSDocument.slug).where(
+            CMSDocument.id == document_id
+        ).run()
+        if not rows:
+            return JSONResponse({"error": "Document not found"}, status_code=404)
+        doc_type = rows[0]["doc_type"]
+        if doc_type in cms.registry and cms.registry.is_append_only(doc_type):
+            return JSONResponse(
+                {"error": "append_only documents cannot be modified"}, status_code=405
+            )
+
+        fields = rich_text_fields(cms, doc_type)
+        field = payload.get("field")
+        if field is None:
+            if len(fields) != 1:
+                return JSONResponse(
+                    {"error": "Name the rich-text field to insert into", "fields": fields},
+                    status_code=422,
+                )
+            field = fields[0]
+        elif field not in fields:
+            return JSONResponse(
+                {"error": f"{field!r} is not an editable rich-text field", "fields": fields},
+                status_code=422,
+            )
+
+        markdown = payload.get("markdown")
+        content = payload.get("content")
+        if (markdown is None) == (content is None):
+            return JSONResponse(
+                {"error": "Give exactly one of 'markdown' or 'content'"}, status_code=422
+            )
+        try:
+            if markdown is not None:
+                from starlette_cms.markdown_pm import markdown_to_pm
+
+                nodes = markdown_to_pm(str(markdown))["content"]
+            elif isinstance(content, list):
+                nodes = content
+            else:
+                return JSONResponse(
+                    {"error": "'content' must be a list of block nodes"}, status_code=422
+                )
+            version = await cms.collab_manager.insert_content(
+                document_id,
+                field,
+                nodes,
+                heading=payload.get("heading"),
+                at=payload.get("at", "end"),
+                source=str(payload.get("source") or "insert")[:40],
+            )
+        except InsertError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        except ImportError:
+            return JSONResponse(
+                {"error": "Inserting needs the collab-verify extra on the CMS"}, status_code=501
+            )
+        except KeyError:
+            return JSONResponse({"error": "Document not found"}, status_code=404)
+
+        asyncio.get_running_loop().create_task(
+            fire_event(cms, "document.updated", document_id, doc_type, rows[0].get("slug", ""))
+        )
+        headers: dict[str, str] = {}
+        created = await link_document_to_changeset(
+            document_id,
+            doc_type,
+            request.headers.get("x-active-changeset-id"),
+            cms.default_changeset,
+        )
+        if created is not None:
+            headers["X-Changeset-Id"], headers["X-Changeset-Title"] = created
+        return JSONResponse(
+            {
+                "document_id": document_id,
+                "field": field,
+                "draft_version": version,
+                "open_editors": len(cms.collab_manager._connections.get(
+                    collab_room(document_id, field), set()
+                )),
+            },
+            headers=headers or None,
+        )
+
     return [
+        Route(
+            "/api/documents/{document_id}/insert",
+            endpoint=insert_content,
+            methods=["POST"],
+            name="collab_insert",
+        ),
         WebSocketRoute("/api/events", endpoint=events_ws),
         WebSocketRoute("/api/documents/{document_id}/collab", endpoint=collab_ws),
         Route(

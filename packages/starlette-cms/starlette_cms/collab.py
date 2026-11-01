@@ -61,6 +61,34 @@ def _effective_body(row: dict) -> dict:
     return (json.loads(raw) if isinstance(raw, str) else raw) or {}
 
 
+class InsertError(ValueError):
+    """Content could not be inserted: no such heading, or it breaks the schema."""
+
+
+def _section_end(doc: Any, heading: str) -> int:
+    """Position at the end of the section under the top-level *heading*.
+
+    :raises InsertError: if no top-level heading has that text, listing those
+        that do exist.
+    """
+    wanted = heading.strip().casefold()
+    headings: list[str] = []
+    pos = 0
+    level: int | None = None
+    for i in range(doc.child_count):
+        child = doc.child(i)
+        if child.type.name == "heading":
+            if level is not None and child.attrs["level"] <= level:
+                return pos
+            headings.append(child.text_content)
+            if level is None and child.text_content.strip().casefold() == wanted:
+                level = child.attrs["level"]
+        pos += child.node_size
+    if level is not None:
+        return pos
+    raise InsertError(f"no heading {heading!r}; the headings are {headings!r}")
+
+
 @dataclass
 class CollabResult:
     """Result of applying a batch of ProseMirror steps to the authority."""
@@ -252,6 +280,70 @@ class CollabAuthority:
         whole = ReplaceStep(0, old.content.size, Slice(new.content, 0, 0))
         return dict(whole.to_json())
 
+    def insertion_step(
+        self, nodes: list[dict], *, heading: str | None = None, at: str = "end"
+    ) -> tuple[dict, dict]:
+        """One ``replace`` step that inserts block *nodes* into this field.
+
+        Built against the authority's live document, so it lands where the
+        document is now, not where a writer last read it, and open editors
+        rebase their pending edits over it like any other step.
+
+        :param nodes: Top-level block nodes (ProseMirror JSON), e.g. the
+            ``content`` of :func:`starlette_cms.markdown_pm.markdown_to_pm`.
+        :param heading: Insert at the end of the section under the first
+            top-level heading with this text (case-insensitive), that is before
+            the next heading of the same or a higher level.
+        :param at: ``"end"`` or ``"start"`` of the field, when *heading* is not given.
+        :returns: The step, and the document it produces.
+        :raises InsertError: if the heading is missing or the nodes do not fit
+            the schema.
+        :raises ImportError: without the ``collab-verify`` extra.
+        """
+        from prosemirror.model import Fragment, Slice
+        from prosemirror.transform import ReplaceStep
+
+        from starlette_cms.collab_verify import EMPTY_DOC, editor_schema
+
+        schema = self._schema or editor_schema()
+        doc = schema.node_from_json(self._doc or EMPTY_DOC)
+        try:
+            fragment = Fragment.from_json(schema, nodes)
+            fragment.for_each(lambda node, *_: node.check())
+        except Exception as exc:  # noqa: BLE001 - prosemirror raises plain errors
+            raise InsertError(f"content does not fit the editor's schema: {exc}") from exc
+        if fragment.size == 0:
+            raise InsertError("nothing to insert")
+
+        size = doc.content.size
+        first = doc.first_child
+        is_blank = (
+            doc.child_count == 1
+            and first is not None
+            and first.type.name == "paragraph"
+            and first.content.size == 0
+        )
+        if is_blank:
+            # An empty field is one empty paragraph: replace it, don't keep it.
+            start, end = 0, size
+        elif heading is not None:
+            start = end = _section_end(doc, heading)
+        elif at == "start":
+            start = end = 0
+        elif at == "end":
+            start = end = size
+        else:
+            raise InsertError(f"'at' must be 'start' or 'end', not {at!r}")
+
+        step = ReplaceStep(start, end, Slice(fragment, 0, 0))
+        try:
+            result = step.apply(doc)
+        except ValueError as exc:  # the port raises where prosemirror-js returns failed
+            raise InsertError(f"content cannot go there: {exc}") from exc
+        if result.failed or result.doc is None:
+            raise InsertError(f"content cannot go there: {result.failed}")
+        return dict(step.to_json()), dict(result.doc.to_json())
+
     async def _persist_steps(
         self,
         steps: list[dict],
@@ -422,7 +514,6 @@ class CollabManager:
         authorities = self.authorities_for(document_id)
         if not authorities:
             return None
-        client_id = f"{SERVER_CLIENT_PREFIX}{source}"
         for authority in authorities:
             if authority.field not in fields:
                 continue
@@ -441,40 +532,113 @@ class CollabManager:
                     continue
                 if step is None:
                     continue
-                base_version = authority._version
-                result = authority.apply_steps(
-                    [step], client_id, base_version, fields[authority.field]
+                result = await self._apply_server_step(
+                    authority, step, fields[authority.field], source, write_draft=write_draft
                 )
-                if not result.accepted:
-                    log.error(
-                        "collab_external_update_refused",
-                        document_id=document_id,
-                        field=authority.field,
-                        reason=result.reason,
-                    )
-                    continue
-                await authority._persist_steps(
-                    [step], client_id, base_version, write_draft=write_draft
-                )
-            log.info(
-                "collab_external_update_folded",
-                document_id=document_id,
-                field=authority.field,
-                source=source,
-                version=result.version,
-            )
-            await self.broadcast(
-                collab_room(document_id, authority.field),
-                {
-                    "type": "steps",
-                    "steps": result.steps,
-                    "clientIDs": result.client_ids,
-                    "version": result.version,
-                    "origin": source,
-                },
-            )
+            if result is not None:
+                await self._broadcast_server_step(authority, result, source)
         remaining = self.authorities_for(document_id)
         return max((a._version for a in remaining), default=None)
+
+    async def insert_content(
+        self,
+        document_id: str,
+        field: str,
+        nodes: list[dict],
+        *,
+        heading: str | None = None,
+        at: str = "end",
+        source: str = "insert",
+    ) -> int:
+        """Insert block *nodes* into *field* through its authority.
+
+        This is how a writer outside the editor (an MCP client, a script) adds
+        to a rich-text field: the insertion is built against the live document
+        and goes out as an ordinary step, so an editor that has the document
+        open sees it appear and keeps what its user is typing. A whole-field
+        replace cannot do that: it is built against whatever the writer last
+        read, so it rolls back anything typed since (ADR 027).
+
+        Loads the authority if no editor has the field open, and lets it go
+        again afterwards.
+
+        :param heading: Insert at the end of this heading's section.
+        :param at: ``"end"`` or ``"start"`` of the field, without *heading*.
+        :param source: Recorded as the step's client id ``server:<source>`` and
+            sent to editors as the step's ``origin``.
+        :returns: The field's version after the insert, which is the
+            document's ``draft_version``.
+        :raises KeyError: if the document does not exist.
+        :raises InsertError: if the content or the place is not valid.
+        :raises ImportError: without the ``collab-verify`` extra.
+        """
+        room = collab_room(document_id, field)
+        authority = await self.get_or_create_authority(document_id, field)
+        try:
+            async with authority._lock:
+                step, new_doc = authority.insertion_step(nodes, heading=heading, at=at)
+                result = await self._apply_server_step(authority, step, new_doc, source)
+            if result is None:
+                raise InsertError("the authority refused the insert")
+            await self._broadcast_server_step(authority, result, source)
+            return result.version
+        finally:
+            if room not in self._connections:
+                async with self._manager_lock:
+                    if room not in self._connections:
+                        self._authorities.pop(room, None)
+
+    async def _apply_server_step(
+        self,
+        authority: CollabAuthority,
+        step: dict,
+        new_doc: dict | None,
+        source: str,
+        *,
+        write_draft: bool = True,
+    ) -> CollabResult | None:
+        """Apply and persist one step the server made. Hold ``authority._lock``.
+
+        :param new_doc: The document the step produces, stored as is when the
+            authority does not verify.
+        :returns: The accepted result, or ``None`` if the authority refused it.
+        """
+        client_id = f"{SERVER_CLIENT_PREFIX}{source}"
+        base_version = authority._version
+        result = authority.apply_steps([step], client_id, base_version, new_doc)
+        if not result.accepted:
+            log.error(
+                "collab_server_step_refused",
+                document_id=authority.document_id,
+                field=authority.field,
+                source=source,
+                reason=result.reason,
+            )
+            return None
+        await authority._persist_steps([step], client_id, base_version, write_draft=write_draft)
+        return result
+
+    async def _broadcast_server_step(
+        self, authority: CollabAuthority, result: CollabResult, source: str
+    ) -> None:
+        """Send a step the server made to every editor of the authority's field."""
+        log.info(
+            "collab_server_step_applied",
+            document_id=authority.document_id,
+            field=authority.field,
+            source=source,
+            version=result.version,
+        )
+        await self.broadcast(
+            collab_room(authority.document_id, authority.field),
+            {
+                "type": "steps",
+                "steps": result.steps,
+                "clientIDs": result.client_ids,
+                "version": result.version,
+                "origin": source,
+            },
+        )
 
     async def add_connection(self, document_id: str, ws: WebSocket) -> None:
         """Register a WebSocket connection for *document_id*."""

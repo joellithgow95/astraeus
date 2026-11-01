@@ -23,8 +23,10 @@ from starlette_cms.api.changesets import (
     link_new_draft_to_default_changeset,
     unlink_from_open_changesets,
 )
+from starlette_cms.api.collab import rich_text_fields
 from starlette_cms.api.webhooks import fire_event
 from starlette_cms.auth import require_auth
+from starlette_cms.collab import collab_room
 from starlette_cms.refs import RefSite, iter_ref_sites, refs_to
 from starlette_cms.tables import CMSChangeset, CMSChangesetDocument, CMSDocument, CMSDocumentVersion
 
@@ -772,6 +774,50 @@ def make_document_routes(cms: CMS) -> list[Route]:
                 return err
 
         current_draft_version = row.get("draft_version") or 0
+
+        # Rich text has one writer, the collab authority (ADR 027). A PATCH that
+        # replaces a rich-text field is built against whatever its writer last
+        # read, so it must say which version that was, and is refused if the
+        # field has moved on since: folding a stale copy in would roll back
+        # what was typed after the read. While an editor has the field open a
+        # base_version is required, because it is moving under the writer.
+        manager = cms.collab_manager
+        live_version = max(
+            (a._version for a in manager.authorities_for(doc_id)),
+            default=current_draft_version,
+        )
+        base_version = patch_data.get("base_version")
+        touched_rich = [f for f in new_body_data if f in rich_text_fields(cms, doc_type)]
+        if base_version is not None and base_version != live_version:
+            return JSONResponse(
+                {
+                    "error": "The document changed since base_version",
+                    "base_version": base_version,
+                    "draft_version": live_version,
+                    "hint": (
+                        "Read the draft again, or add to a rich-text field with "
+                        "POST /api/documents/{id}/insert, which needs no version."
+                    ),
+                },
+                status_code=409,
+            )
+        open_fields = [
+            f for f in touched_rich if manager._connections.get(collab_room(doc_id, f))
+        ]
+        if open_fields and base_version is None:
+            return JSONResponse(
+                {
+                    "error": "Open in an editor: replacing a rich-text field needs base_version",
+                    "fields": open_fields,
+                    "draft_version": live_version,
+                    "hint": (
+                        "Use POST /api/documents/{id}/insert to add content, or pass the "
+                        "draft_version you read as base_version."
+                    ),
+                },
+                status_code=409,
+            )
+
         update_kwargs: dict[Column | str, Any] = {
             CMSDocument.draft_body: json.dumps(merged_body),
             CMSDocument.draft_version: current_draft_version + 1,

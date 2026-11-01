@@ -321,7 +321,9 @@ export class CollabConnection {
         this.toolbar?.setNotice?.(
           msg.origin === 'discard'
             ? 'The draft was discarded elsewhere — this field now shows the published text.'
-            : 'This field was changed outside the editor — it now shows that change, with your edits on top.',
+            : msg.origin === 'mcp' || msg.origin === 'insert'
+              ? 'New content was added to this field from outside the editor (e.g. by Claude). Your edits are kept.'
+              : 'This field was changed outside the editor — it now shows that change, with your edits on top.',
         )
       }
 

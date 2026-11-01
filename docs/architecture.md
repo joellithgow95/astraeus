@@ -184,18 +184,27 @@ Human (browser)         Agent (Claude)
        ▼                      ▼
 starlette-editor     starlette-cms MCP
   (reads schema,       (create_document,
-   renders UI,          update_document,
-   PATCH on save)       publish_document)
+   renders UI,          insert_into_document,
+   body: collab WS,     update_document,
+   PATCH plain fields)  publish_document)
        │                      │
        └──────────┬───────────┘
                   ▼
            cms.app HTTP API
-           /api/documents
+           /api/documents            (CRUD: plain fields, lifecycle)
+           /api/documents/{id}/insert, /collab  (rich text, via CollabAuthority)
            /api/schema
            /api/editor-schema
 ```
 
 This means an agent can do everything the editor can — create, edit, publish — just without a visual interface.
+
+Rich-text fields have one writer, the field's `CollabAuthority` (ADR 027). The editor streams body
+edits over the collab WebSocket; an agent adds to a body with `insert_into_document`, which the
+authority applies as a step against the live document, so a person with the post open sees it
+appear and keeps their typing. A whole-body `update_document` must carry the `base_version` it
+read and is refused if the body has moved on. Plain fields (title, tags, image, dates, refs) are
+written with PATCH by both peers.
 
 ---
 

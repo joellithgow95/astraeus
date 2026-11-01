@@ -113,22 +113,50 @@ def _type(ws, text: str, at: int, version: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_a_save_carrying_the_loaded_body_reaches_the_open_editor(server):
-    """The shell's Save sent the body it loaded. The editor must hear of it.
+def test_a_save_carrying_the_loaded_body_is_refused_while_the_editor_is_open(server):
+    """The shell's Save sent the body it loaded. That must never land silently.
 
     Before the fix the PATCH overwrote the stored draft while the session still
     held the typed text; the editor was told nothing and showed the typed text,
-    which vanished once the session closed.
+    which vanished once the session closed. Now a rich-text write with no
+    base_version is refused while an editor has the field open (ADR 027).
     """
     client, _, doc_id = server
 
     with client.websocket_connect(_url(doc_id)) as ws:
         assert ws.receive_json()["type"] == "init"
         version = _type(ws, " Typed.", 14, 0)
-        assert "I found this. Typed." in _text(_draft(client, doc_id)["body"]["body"])
 
         resp = client.patch(
             f"/api/documents/{doc_id}", json={"body": {"title": "T2", "body": LOADED}}
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["fields"] == ["body"]
+        assert resp.json()["draft_version"] == version
+
+        # A stale base_version is refused too: it would roll back " Typed.".
+        resp = client.patch(
+            f"/api/documents/{doc_id}",
+            json={"body": {"body": LOADED}, "base_version": 0},
+        )
+        assert resp.status_code == 409, resp.text
+
+    stored = _draft(client, doc_id)
+    assert stored["body"]["title"] == "T"
+    assert "I found this. Typed." in _text(stored["body"]["body"])
+
+
+def test_a_body_write_at_the_current_version_reaches_the_open_editor(server):
+    """A deliberate replace, made against the live version, is folded in as a step."""
+    client, _, doc_id = server
+
+    with client.websocket_connect(_url(doc_id)) as ws:
+        assert ws.receive_json()["type"] == "init"
+        version = _type(ws, " Typed.", 14, 0)
+
+        resp = client.patch(
+            f"/api/documents/{doc_id}",
+            json={"body": {"title": "T2", "body": LOADED}, "base_version": version},
         )
         assert resp.status_code == 200, resp.text
 
@@ -138,7 +166,7 @@ def test_a_save_carrying_the_loaded_body_reaches_the_open_editor(server):
         assert msg["origin"] == "patch"
         assert msg["version"] == version + 1
 
-    # The overwrite is now a logged step, so the typed text can be replayed back.
+    # The overwrite is a logged step, so the typed text can be replayed back.
     assert resp.json()["draft_version"] == version + 1
 
 
@@ -151,7 +179,11 @@ def test_a_rest_write_to_the_body_is_not_reverted_by_the_next_keystroke(server):
         ws.receive_json()
         version = _type(ws, "!", 14, 0)
 
-        client.patch(f"/api/documents/{doc_id}", json={"body": {"body": replacement}})
+        resp = client.patch(
+            f"/api/documents/{doc_id}",
+            json={"body": {"body": replacement}, "base_version": version},
+        )
+        assert resp.status_code == 200, resp.text
         folded = ws.receive_json()
         assert folded["type"] == "steps"
 
@@ -223,7 +255,11 @@ def test_the_step_log_replays_to_the_stored_document_across_sessions_and_writes(
     with client.websocket_connect(_url(doc_id)) as ws:
         ws.receive_json()
         version = _type(ws, " One.", 14, 0)
-        client.patch(f"/api/documents/{doc_id}", json={"body": {"body": _doc("Replaced")}})
+        resp = client.patch(
+            f"/api/documents/{doc_id}",
+            json={"body": {"body": _doc("Replaced")}, "base_version": version},
+        )
+        assert resp.status_code == 200, resp.text
         version = ws.receive_json()["version"]
         version = _type(ws, " Two.", 9, version)
 

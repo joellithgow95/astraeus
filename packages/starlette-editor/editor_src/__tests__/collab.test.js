@@ -762,6 +762,18 @@ describe('CollabConnection failure surfacing', () => {
     conn.destroy()
   })
 
+  it('says content was added when an MCP insert arrives', () => {
+    const toolbar = makeLoudToolbar()
+    const conn = makeConn(toolbar)
+
+    conn._handleMessage({
+      type: 'steps', steps: [{ stepType: 'replace' }], clientIDs: ['server:mcp'], version: 1, origin: 'mcp',
+    })
+
+    expect(toolbar.setNotice).toHaveBeenCalledWith(expect.stringContaining('New content was added'))
+    conn.destroy()
+  })
+
   it('warns when the connection stays down with unsaved edits', () => {
     const toolbar = makeLoudToolbar()
     const conn = makeConn(toolbar)

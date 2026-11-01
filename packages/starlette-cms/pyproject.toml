@@ -34,7 +34,7 @@ mcp = [
     "mcp>=1.0,<2",
 ]
 postgres = ["asyncpg>=0.29"]
-collab-verify = ["prosemirror>=0.6.1,<0.7"]
+collab-verify = ["prosemirror>=0.6.1,<0.7", "mistune>=3.0"]
 dev = ["starlette-cms[mcp,postgres,collab-verify]", "uvicorn>=0.30"]
 
 [project.scripts]
