@@ -4,6 +4,7 @@ Tests for field_meta() on all field types, including block container fields.
 
 from __future__ import annotations
 
+from starlette_cms.drawing import Doodle
 from starlette_cms.fields import (
     BlockField,
     BoolField,
@@ -150,11 +151,11 @@ def test_doodle_field_meta_passes_through_base_attrs():
 
 def test_doodle_field_optional_defaults_to_none():
     py_type, info = _make_field(list, DoodleField(), {})
-    assert py_type == (list[dict] | None)
+    assert py_type == (list[Doodle] | None)
     assert info.default is None
 
 
 def test_doodle_field_required_defaults_to_empty_list():
     py_type, info = _make_field(list, DoodleField(required=True), {})
-    assert py_type == list[dict]
+    assert py_type == list[Doodle]
     assert info.default_factory is list

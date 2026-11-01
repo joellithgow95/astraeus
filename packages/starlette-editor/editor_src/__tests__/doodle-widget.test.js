@@ -81,8 +81,8 @@ describe('createDoodleWidget', () => {
 
   it('renders one row per existing doodle', () => {
     const existing = [
-      { id: 'dd_1', path_data: 'M0 0 L1 1', viewbox: '0 0 20 20' },
-      { id: 'dd_2', path_data: 'M2 2 L3 3', viewbox: '0 0 20 20' },
+      { id: 'dd_1', drawing: { viewbox: '0 0 20 20', paths: [{ d: 'M0 0 L1 1' }] } },
+      { id: 'dd_2', drawing: { viewbox: '0 0 20 20', paths: [{ d: 'M2 2 L3 3' }] } },
     ]
     createDoodleWidget(existing, { container, onSave })
     expect(container.querySelectorAll('.__doodle-row').length).toBe(2)
@@ -90,8 +90,8 @@ describe('createDoodleWidget', () => {
 
   it('removing an existing doodle calls onSave with it excluded', () => {
     const existing = [
-      { id: 'dd_1', path_data: 'M0 0 L1 1', viewbox: '0 0 20 20' },
-      { id: 'dd_2', path_data: 'M2 2 L3 3', viewbox: '0 0 20 20' },
+      { id: 'dd_1', drawing: { viewbox: '0 0 20 20', paths: [{ d: 'M0 0 L1 1' }] } },
+      { id: 'dd_2', drawing: { viewbox: '0 0 20 20', paths: [{ d: 'M2 2 L3 3' }] } },
     ]
     createDoodleWidget(existing, { container, onSave })
 
@@ -125,8 +125,8 @@ describe('createDoodleWidget', () => {
     expect(onSave).toHaveBeenCalledOnce()
     const saved = onSave.mock.calls[0][0]
     expect(saved).toHaveLength(1)
-    expect(saved[0].path_data).toBe(pointsToPathData([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }]))
-    expect(saved[0].viewbox).toBe('0 0 220 220')
+    expect(saved[0].drawing.paths[0].d).toBe(pointsToPathData([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }]))
+    expect(saved[0].drawing.viewbox).toBe('0 0 220 220')
     expect(saved[0].placement.base.mode).toBe('absolute')
     // Canvas closes after a successful save.
     expect(container.querySelector('.__doodle-canvas-wrap')).toBeNull()
@@ -197,13 +197,13 @@ describe('strokesToDoodle', () => {
   it('produces a viewbox tightly cropped to the drawn strokes, not the whole canvas', () => {
     const doodle = strokesToDoodle([[{ x: 100, y: 100 }, { x: 120, y: 110 }]], anchorRect)
     // width 20 + height 10, padded by EDGE_PAD (4px) on each side.
-    expect(doodle.viewbox).toBe('0 0 28 18')
+    expect(doodle.drawing.viewbox).toBe('0 0 28 18')
   })
 
-  it('rebases path_data into the cropped viewbox’s own coordinate space', () => {
+  it('rebases each path into the cropped viewbox’s own coordinate space', () => {
     const doodle = strokesToDoodle([[{ x: 100, y: 100 }, { x: 120, y: 100 }]], anchorRect)
     // origin = (100 - 4, 100 - 4) = (96, 96) — first point rebases to (4, 4).
-    expect(doodle.path_data.startsWith('M 4 4')).toBe(true)
+    expect(doodle.drawing.paths[0].d.startsWith('M 4 4')).toBe(true)
   })
 
   it('gives every doodle a unique id', () => {
@@ -320,13 +320,13 @@ describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', 
     expect(rendered).toHaveLength(1)
     const saved = onSave.mock.calls[0][0][0]
     expect(rendered[0].getAttribute('data-doodle-id')).toBe(saved.id)
-    expect(rendered[0].getAttribute('viewBox')).toBe(saved.viewbox)
-    expect(rendered[0].querySelector('path').getAttribute('d')).toBe(saved.path_data)
+    expect(rendered[0].getAttribute('viewBox')).toBe(saved.drawing.viewbox)
+    expect(rendered[0].querySelector('path').getAttribute('d')).toBe(saved.drawing.paths[0].d)
     expect(rendered[0].style.position).toBe('absolute')
   })
 
   it('removes a doodle from the live overlay immediately when removed from the list', () => {
-    const existing = [{ id: 'dd_1', path_data: 'M0 0 L1 1', viewbox: '0 0 20 20', placement: { base: { mode: 'absolute', top: { value: 10, unit: '%' }, left: { value: 10, unit: '%' } } } }]
+    const existing = [{ id: 'dd_1', drawing: { viewbox: '0 0 20 20', paths: [{ d: 'M0 0 L1 1' }] }, placement: { base: { mode: 'absolute', top: { value: 10, unit: '%' }, left: { value: 10, unit: '%' } } } }]
     createDoodleWidget(existing, { container, anchorEl: handleEl, close: vi.fn(), onSave })
 
     // Initial sync (pending-draft case) already rendered it on widget creation.
@@ -338,7 +338,7 @@ describe('createDoodleWidget: on-page draw mode (a real anchorEl is provided)', 
   })
 
   it('syncs the live overlay on widget creation, before any edit — a pending draft doodle from an earlier session is visible immediately', () => {
-    const existing = [{ id: 'dd_pending', path_data: 'M0 0 L1 1', viewbox: '0 0 20 20', placement: { base: { mode: 'absolute', top: { value: 5, unit: '%' }, left: { value: 5, unit: '%' } } } }]
+    const existing = [{ id: 'dd_pending', drawing: { viewbox: '0 0 20 20', paths: [{ d: 'M0 0 L1 1' }] }, placement: { base: { mode: 'absolute', top: { value: 5, unit: '%' }, left: { value: 5, unit: '%' } } } }]
     createDoodleWidget(existing, { container, anchorEl: handleEl, close: vi.fn(), onSave })
 
     const rendered = overlayEl.querySelectorAll('.doodle-overlay__item')

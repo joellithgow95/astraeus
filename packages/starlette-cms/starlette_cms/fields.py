@@ -387,12 +387,13 @@ class DocumentRef(_BaseField):
 @dataclass
 class DoodleField(_BaseField):
     """
-    A list of freehand SVG doodles, each with a responsive placement spec.
+    A list of freehand SVG doodles, each a ``Drawing`` with a responsive
+    placement spec (``starlette_cms.drawing.Doodle``).
 
-    Stored as a plain JSON array in the document body — same shape as
-    ``ListField(item_type=...)`` without the polymorphism, tagged with its
-    own field_type so the editor mounts a draw/place widget instead of the
-    generic block canvas. A document can have zero, one, or many doodles.
+    Stored as a JSON array in the document body and validated on save,
+    tagged with its own field_type so the editor mounts a draw/place widget
+    instead of the generic block canvas. A document can have zero, one, or
+    many doodles.
 
     Example::
 

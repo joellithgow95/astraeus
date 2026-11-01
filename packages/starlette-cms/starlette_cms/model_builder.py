@@ -28,6 +28,7 @@ from pydantic import AfterValidator, Field, create_model
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticCustomError, PydanticUndefined
 
+from starlette_cms.drawing import Doodle
 from starlette_cms.fields import (
     BlockField,
     BoolField,
@@ -220,8 +221,8 @@ def _make_field(
 
     if isinstance(default, DoodleField):
         if optional:
-            return (list[dict] | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
-        return (list[dict], Field(default_factory=list, json_schema_extra=extra))  # type: ignore[return-value]
+            return (list[Doodle] | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (list[Doodle], Field(default_factory=list, json_schema_extra=extra))  # type: ignore[return-value]
 
     if isinstance(default, DocumentRef):
         if optional:

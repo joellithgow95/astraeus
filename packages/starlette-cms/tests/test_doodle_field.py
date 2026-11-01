@@ -17,6 +17,7 @@ import os
 import tempfile
 
 import httpx
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport
 from starlette.applications import Starlette
@@ -38,10 +39,12 @@ def _make_client(cms: CMS) -> httpx.AsyncClient:
 
 SAMPLE_DOODLE = {
     "id": "dd_x7k2p9",
-    "path_data": "M 12 34 C 18 40, 25 38, 30 30",
-    "viewbox": "0 0 100 100",
-    "stroke": "#1a1a1a",
-    "stroke_width": 2,
+    "drawing": {
+        "viewbox": "0 0 100 100",
+        "paths": [
+            {"d": "M 12 34 C 18 40, 25 38, 30 30", "stroke": "currentColor", "stroke_width": 2}
+        ],
+    },
     "placement": {"base": {"mode": "absolute", "top": {"value": 12, "unit": "%"}}},
 }
 
@@ -198,3 +201,75 @@ async def test_generic_list_endpoint_does_not_filter_singleton_status(cms_with_d
     # Both the archived first version and the active second version are
     # `published=True`, so both show up — this is the gotcha, not a bug fix.
     assert len(docs) == 2
+
+
+# ---------------------------------------------------------------------------
+# The stored shape is validated (starlette_cms.drawing)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        # the pre-drawing prototype shape
+        {
+            "id": "dd_old",
+            "path_data": "M 0 0",
+            "viewbox": "0 0 10 10",
+            "placement": SAMPLE_DOODLE["placement"],
+        },
+        # markup smuggled into path data
+        {
+            **SAMPLE_DOODLE,
+            "drawing": {"viewbox": "0 0 10 10", "paths": [{"d": 'M 0 0"/><script>'}]},
+        },
+        # a drawing with no paths
+        {**SAMPLE_DOODLE, "drawing": {"viewbox": "0 0 10 10", "paths": []}},
+    ],
+)
+async def test_malformed_doodle_is_refused(cms_with_doodles, bad):
+    async with _make_client(cms_with_doodles) as client:
+        resp = await client.post(
+            "/api/documents",
+            json={
+                "doc_type": "post",
+                "slug": "bad-doodle",
+                "body": {"title": "Post", "doodles": [bad]},
+            },
+        )
+    assert resp.status_code == 422
+
+
+async def test_shaded_drawing_with_symmetry_round_trips(cms_with_doodles):
+    doodle = {
+        **SAMPLE_DOODLE,
+        "drawing": {
+            "viewbox": "0 0 100 100",
+            "paths": [
+                {
+                    "d": "M 50 8 C 60 30 60 70 50 92",
+                    "stroke": "currentColor",
+                    "stroke_width": 1.5,
+                    "fill": "none",
+                },
+                {
+                    "d": "M 40 60 L 60 60 L 50 80 Z",
+                    "stroke": "none",
+                    "fill": "#c9a227",
+                    "opacity": 0.4,
+                },
+            ],
+            "symmetry": "vertical",
+        },
+    }
+    async with _make_client(cms_with_doodles) as client:
+        resp = await client.post(
+            "/api/documents",
+            json={
+                "doc_type": "post",
+                "slug": "shaded",
+                "body": {"title": "Post", "doodles": [doodle]},
+            },
+        )
+    assert resp.status_code == 201
+    assert resp.json()["body"]["doodles"] == [doodle]

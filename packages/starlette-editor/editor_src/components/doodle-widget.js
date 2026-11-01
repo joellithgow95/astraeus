@@ -20,10 +20,13 @@
  * container instead.
  */
 
+import { pointsToPathData, renderDrawingInto, strokesToDrawing } from './drawing.js'
+
+export { pointsToPathData }
+
 const MARGIN = 70 // px bleed around the anchor, validated interactively against Option A/B/C
 const EDGE_PAD = 4 // px — keeps a stroke right at the bounding edge from being clipped by the viewBox
 const FALLBACK_CANVAS_SIZE = 220 // px — inline-mode-only, no anchor to size against
-const POINT_MIN_DISTANCE = 3 // px — decimates high-frequency pointermove samples
 
 let _idCounter = 0
 function _nextId() {
@@ -35,42 +38,6 @@ function _round2(n) {
   return Math.round(n * 100) / 100
 }
 
-/**
- * Decimate a raw point list by minimum distance, then fit a smooth path
- * through it (quadratic segments through consecutive midpoints — enough for
- * a small decorative doodle, no curve-fitting dependency needed).
- *
- * @param {{x: number, y: number}[]} points
- * @returns {string} SVG path `d` attribute value
- */
-export function pointsToPathData(points) {
-  if (points.length === 0) return ''
-
-  const decimated = [points[0]]
-  for (const p of points.slice(1)) {
-    const last = decimated[decimated.length - 1]
-    const dx = p.x - last.x
-    const dy = p.y - last.y
-    if (Math.sqrt(dx * dx + dy * dy) >= POINT_MIN_DISTANCE) decimated.push(p)
-  }
-
-  if (decimated.length < 2) {
-    const p = decimated[0]
-    return `M ${p.x} ${p.y} L ${p.x} ${p.y}`
-  }
-
-  let d = `M ${decimated[0].x} ${decimated[0].y}`
-  for (let i = 1; i < decimated.length; i++) {
-    const prev = decimated[i - 1]
-    const cur = decimated[i]
-    const midX = (prev.x + cur.x) / 2
-    const midY = (prev.y + cur.y) / 2
-    d += ` Q ${prev.x} ${prev.y} ${midX} ${midY}`
-  }
-  const last = decimated[decimated.length - 1]
-  d += ` L ${last.x} ${last.y}`
-  return d
-}
 
 /**
  * Bounding box of every point across every stroke, in the same coordinate
@@ -111,7 +78,6 @@ export function strokesToDoodle(nonEmptyStrokes, anchorRect) {
   const h = box.height + EDGE_PAD * 2
 
   const rebased = nonEmptyStrokes.map((stroke) => stroke.map((p) => ({ x: p.x - originX, y: p.y - originY })))
-  const pathData = rebased.map(pointsToPathData).join(' ')
 
   const topPct = ((originY - MARGIN) / anchorRect.height) * 100
   const leftPct = ((originX - MARGIN) / anchorRect.width) * 100
@@ -119,11 +85,7 @@ export function strokesToDoodle(nonEmptyStrokes, anchorRect) {
 
   return {
     id: _nextId(),
-    path_data: pathData,
-    viewbox: `0 0 ${w} ${h}`,
-    stroke: '#1a1a1a',
-    stroke_width: 2,
-    fill: 'none',
+    drawing: strokesToDrawing(rebased, { width: w, height: h }),
     placement: {
       base: {
         mode: 'absolute',
@@ -179,15 +141,8 @@ function _syncLiveOverlay(anchor, doodles) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('class', 'doodle-overlay__item')
     svg.setAttribute('data-doodle-id', d.id)
-    svg.setAttribute('viewBox', d.viewbox)
     svg.style.cssText = `${_declBlock(d.placement.base)} z-index:${d.z_index ?? 1};`
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', d.path_data)
-    path.setAttribute('stroke', d.stroke ?? 'currentColor')
-    path.setAttribute('stroke-width', String(d.stroke_width ?? 2))
-    path.setAttribute('fill', d.fill ?? 'none')
-    svg.appendChild(path)
+    renderDrawingInto(svg, d.drawing)
 
     overlay.appendChild(svg)
   }
@@ -325,14 +280,9 @@ function _openPanelCanvasFallback({ root, doodles, onDone }) {
 
     // No real anchor, so no meaningful placement to compute — same fixed
     // placeholder position this widget always used before draw-on-page.
-    const pathData = nonEmpty.map(pointsToPathData).join(' ')
     doodles.push({
       id: _nextId(),
-      path_data: pathData,
-      viewbox: `0 0 ${FALLBACK_CANVAS_SIZE} ${FALLBACK_CANVAS_SIZE}`,
-      stroke: '#1a1a1a',
-      stroke_width: 2,
-      fill: 'none',
+      drawing: strokesToDrawing(nonEmpty, { width: FALLBACK_CANVAS_SIZE, height: FALLBACK_CANVAS_SIZE }),
       placement: {
         base: { mode: 'absolute', top: { value: 20, unit: '%' }, left: { value: 20, unit: '%' }, width: { value: 64, unit: 'px' } },
       },
@@ -377,16 +327,12 @@ export function createDoodleWidget(value, ctx) {
       row.style.cssText = 'display:flex;align-items:center;gap:8px;'
 
       const preview = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-      preview.setAttribute('viewBox', doodle.viewbox || `0 0 ${FALLBACK_CANVAS_SIZE} ${FALLBACK_CANVAS_SIZE}`)
+      preview.setAttribute('viewBox', `0 0 ${FALLBACK_CANVAS_SIZE} ${FALLBACK_CANVAS_SIZE}`)
       preview.setAttribute('width', '32')
       preview.setAttribute('height', '32')
       preview.style.cssText = 'border:1px solid #e5e7eb;border-radius:4px;background:#fafafa;'
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      path.setAttribute('d', doodle.path_data || '')
-      path.setAttribute('stroke', doodle.stroke || '#1a1a1a')
-      path.setAttribute('stroke-width', String(doodle.stroke_width ?? 2))
-      path.setAttribute('fill', 'none')
-      preview.appendChild(path)
+      preview.style.color = '#1a1a1a'
+      renderDrawingInto(preview, doodle.drawing)
       row.appendChild(preview)
 
       const removeBtn = document.createElement('button')

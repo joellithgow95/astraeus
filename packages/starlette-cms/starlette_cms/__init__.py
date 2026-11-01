@@ -26,6 +26,7 @@ Quickstart::
 """
 
 from starlette_cms.app import CMS
+from starlette_cms.drawing import Doodle, Drawing, DrawingPath
 from starlette_cms.exceptions import (
     BlockNotFound,
     BlockRegistrationError,
@@ -61,10 +62,14 @@ __version__ = "0.5.0"
 # Library contract: install NullHandler so the host app controls log routing.
 # See ADR 017.
 import logging as _logging
+
 _logging.getLogger("starlette_cms").addHandler(_logging.NullHandler())
 
 __all__ = [
     "CMS",
+    "Doodle",
+    "Drawing",
+    "DrawingPath",
     "block",
     "TextField",
     "RichTextField",
