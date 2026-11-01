@@ -27,7 +27,7 @@ export function openFloatingPanel(anchorEl, { className }) {
     position: 'fixed',
     top: `${rect.bottom + window.scrollY + 6}px`,
     left: `${rect.left + window.scrollX}px`,
-    zIndex: '99999',
+    zIndex: '2147482950', // over the host page, under the embed toolbar (2147483000)
     background: '#fff',
     border: '1px solid #d1d5db',
     borderRadius: '8px',

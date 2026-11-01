@@ -276,7 +276,7 @@ function _openOnPageDrawMode({ anchor, doodles, onDone }) {
 
   const toolbar = document.createElement('div')
   toolbar.className = '__doodle-onpage-toolbar'
-  toolbar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9998;display:flex;gap:8px;background:#111827;border:1px solid #374151;border-radius:999px;padding:6px 8px;box-shadow:0 8px 30px rgba(0,0,0,0.4);'
+  toolbar.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483050;display:flex;gap:8px;background:#111827;border:1px solid #374151;border-radius:999px;padding:6px 8px;box-shadow:0 8px 30px rgba(0,0,0,0.4);'
   document.body.appendChild(toolbar)
 
   function cleanup() {
