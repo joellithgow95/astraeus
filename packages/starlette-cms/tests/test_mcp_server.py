@@ -686,3 +686,108 @@ async def test_publish_description_mentions_rebuild():
 
     assert "rebuild" in tools["publish_document"]
     assert "DRAFT" in tools["create_document"]
+
+
+# ---------------------------------------------------------------------------
+# tags: list_tags, and the note on a new tag
+# ---------------------------------------------------------------------------
+
+
+def _tag_routes(known: dict[str, int], schema_status: int = 200):
+    """A GET double answering the schema, tag and document lookups the tag tools make."""
+
+    async def get(self, url, **kwargs):
+        if url.startswith("/api/schema/"):
+            return _mock_response(
+                schema_status,
+                {"field_meta": {"tags": {"field_type": "tags"}, "title": {"label": "Title"}}},
+            )
+        if url == "/api/tags":
+            tags = [{"tag": t, "count": n} for t, n in known.items()]
+            return _mock_response(200, {"tags": tags})
+        return _mock_response(200, {"id": "doc1", "doc_type": "link"})
+
+    return get
+
+
+@pytest.mark.anyio
+async def test_list_tags_returns_the_ranked_tags():
+    mcp = _build_server()
+    mock_get = AsyncMock(
+        return_value=_mock_response(200, {"tags": [{"tag": "ai", "count": 12}, {"tag": "art", "count": 4}]})
+    )
+
+    with patch("httpx.AsyncClient.get", mock_get):
+        result = await _call_tool(mcp, "list_tags", doc_type="blog_post", limit=1)
+
+    assert mock_get.call_args.kwargs["params"] == {"type": "blog_post", "field": "tags"}
+    assert result["tags"] == [{"tag": "ai", "count": 12}]
+    assert result["total"] == 2
+
+
+@pytest.mark.anyio
+async def test_create_document_notes_a_new_tag_and_names_similar_ones():
+    mcp = _build_server()
+    created = {"id": "n1", "doc_type": "link", "body": {}}
+    known = {"developer-blogs": 6, "inspo": 4, "design": 2}
+
+    with (
+        patch("httpx.AsyncClient.get", _tag_routes(known)),
+        patch("httpx.AsyncClient.post", AsyncMock(return_value=_mock_response(201, dict(created)))),
+    ):
+        result = await _call_tool(
+            mcp,
+            "create_document",
+            doc_type="link",
+            body={"tags": ["inspo", "design-portfolio", "Inspiration"]},
+        )
+
+    notes = {n["tag"]: n["note"] for n in result["tag_notes"]}
+    assert set(notes) == {"design-portfolio", "inspiration"}  # inspo is known; Inspiration is normalised
+    assert "design (2)" in notes["design-portfolio"]
+    assert "inspo (4)" in notes["inspiration"]
+    assert "Tags are lowercase and hyphenated: 'inspiration'" not in notes["design-portfolio"]
+
+
+@pytest.mark.anyio
+async def test_a_known_tag_gets_no_note():
+    mcp = _build_server()
+
+    with (
+        patch("httpx.AsyncClient.get", _tag_routes({"inspo": 4})),
+        patch("httpx.AsyncClient.post", AsyncMock(return_value=_mock_response(201, {"id": "n1"}))),
+    ):
+        result = await _call_tool(mcp, "create_document", doc_type="link", body={"tags": ["inspo"]})
+
+    assert "tag_notes" not in result
+
+
+@pytest.mark.anyio
+async def test_the_write_goes_ahead_when_the_tag_lookup_fails():
+    mcp = _build_server()
+    mock_post = AsyncMock(return_value=_mock_response(201, {"id": "n1"}))
+
+    with (
+        patch("httpx.AsyncClient.get", _tag_routes({}, schema_status=500)),
+        patch("httpx.AsyncClient.post", mock_post),
+    ):
+        result = await _call_tool(mcp, "create_document", doc_type="link", body={"tags": ["new"]})
+
+    assert result == {"id": "n1"}
+    mock_post.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_update_document_notes_a_new_tag():
+    mcp = _build_server()
+    mock_patch = AsyncMock(return_value=_mock_response(200, {"id": "doc1"}))
+
+    with (
+        patch("httpx.AsyncClient.get", _tag_routes({"developer-blogs": 6})),
+        patch("httpx.AsyncClient.patch", mock_patch),
+    ):
+        result = await _call_tool(mcp, "update_document", doc_id="doc1", body={"tags": ["developer-blog"]})
+
+    assert result["tag_notes"][0]["tag"] == "developer-blog"
+    assert "developer-blogs (6)" in result["tag_notes"][0]["note"]
+    assert mock_patch.call_args.kwargs["json"]["body"] == {"tags": ["developer-blog"]}

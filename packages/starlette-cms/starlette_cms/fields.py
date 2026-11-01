@@ -225,6 +225,12 @@ class JSONField(_BaseField):
         return base
 
 
+TAGS_HELP = (
+    "Lowercase, hyphenated. Reuse an existing tag where one fits (the list_tags MCP tool "
+    "and the editor's suggestions show them) before adding a new one."
+)
+
+
 @dataclass
 class TagsField(_BaseField):
     """A list of short tag strings, edited as chips.
@@ -252,6 +258,8 @@ class TagsField(_BaseField):
     def field_meta(self) -> dict[str, Any]:
         m = super().field_meta()
         m["field_type"] = "tags"
+        # The schema is what an agent reads before writing, so the habit travels with it.
+        m.setdefault("help_text", TAGS_HELP)
         if self.suggest_from:
             m["suggest_from"] = self.suggest_from
             m["suggest_field"] = self.suggest_field
