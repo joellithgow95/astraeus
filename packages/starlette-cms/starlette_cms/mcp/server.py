@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
+import re
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -178,6 +180,26 @@ def _error(message: str, hint: str | None = None, **extra: Any) -> dict[str, Any
     return payload
 
 
+def _normalise_tag(tag: str) -> str:
+    """The lowercase, hyphenated form a tag should take."""
+    return re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-")
+
+
+def _similar_tags(tag: str, known: dict[str, int], limit: int = 3) -> list[str]:
+    """Existing tags that look like ``tag`` (near spelling, shared word or stem), by use."""
+    words = set(tag.split("-"))
+    found = []
+    for other, uses in known.items():
+        if other == tag:
+            continue
+        close = difflib.SequenceMatcher(None, tag, other).ratio() >= 0.7
+        shared_word = bool(words & set(other.split("-")))
+        shared_stem = len(os.path.commonprefix([tag, other])) >= 4
+        if close or shared_word or shared_stem:
+            found.append((-uses, other))
+    return [f"{t} ({-n})" for n, t in sorted(found)[:limit]]
+
+
 def _unknown_parameter_message(tool_name: str, unknown: list[str], valid: list[str]) -> str:
     """Explain unknown tool arguments, suggesting the closest valid name."""
     parts: list[str] = []
@@ -312,6 +334,9 @@ def build_mcp_server(
             "shows them all. Move a document with remove_document_from_changeset and "
             "add_document_to_changeset; publish_changeset publishes every document "
             "in one, so only call it when asked.\n"
+            "Tags: before tagging a document call list_tags(doc_type) and reuse an "
+            "existing tag where one fits; create_document and update_document say in "
+            "tag_notes when a tag is new and which existing ones look like it.\n"
             "Parameter names are exact: an unknown parameter is rejected with a "
             "suggestion, not ignored."
         ),
@@ -547,6 +572,90 @@ def build_mcp_server(
             "truncated": True,
         }
 
+    async def _tag_notes(doc_type: str, body: dict[str, Any]) -> list[dict[str, str]]:
+        """Notes on tags in ``body`` that no other ``doc_type`` document uses.
+
+        Advisory: any failure gives none.
+
+        Checks the type's top-level tag fields, so call it BEFORE the write (a saved
+        draft's own tags count as used). Never blocks a save: a new tag is sometimes right.
+        """
+        try:
+            client = _get_client()
+            r = await client.get(f"/api/schema/{doc_type}", headers=_read_headers())
+            if r.status_code != 200:
+                return []
+            field_meta = r.json().get("field_meta", {})
+            notes: list[dict[str, str]] = []
+            for field, meta in field_meta.items():
+                values = body.get(field)
+                if meta.get("field_type") != "tags" or not isinstance(values, list) or not values:
+                    continue
+                source = meta.get("suggest_from") or doc_type
+                r = await client.get(
+                    "/api/tags",
+                    params={"type": source, "field": meta.get("suggest_field") or field},
+                    headers=_read_headers(),
+                )
+                if r.status_code != 200:
+                    continue
+                known = {t["tag"]: t["count"] for t in r.json().get("tags", [])}
+                for tag in values:
+                    if not isinstance(tag, str) or tag in known:
+                        continue
+                    note = f"No other {source} uses this tag."
+                    if (fixed := _normalise_tag(tag)) != tag:
+                        note += f" Tags are lowercase and hyphenated: {fixed!r}."
+                        tag = fixed
+                        if tag in known:
+                            note += " That one exists already."
+                    if similar := _similar_tags(tag, known):
+                        note += f" Similar existing tags: {', '.join(similar)}."
+                    note += " Fine if it is genuinely new; otherwise reuse an existing tag."
+                    notes.append({"field": field, "tag": tag, "note": note})
+            return notes
+        except Exception:  # advisory only; the write must not depend on it
+            return []
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def list_tags(
+        doc_type: Annotated[
+            str,
+            Field(description='Block type name whose tags to list, e.g. "blog_post" or "link".'),
+        ],
+        field: Annotated[
+            str,
+            Field(description="The list-of-strings field to read. Default: tags."),
+        ] = "tags",
+        limit: Annotated[
+            int, Field(ge=1, le=500, description="Most tags to return (default 100).")
+        ] = 100,
+    ) -> dict[str, Any]:
+        """
+        List the tags already used on one document type, most used first, with how
+        many documents carry each.
+
+        Call this before tagging a document and reuse an existing tag where one fits;
+        a near-duplicate ("visual-design" beside "design") splits what a tag page or
+        a link collection gathers. Drafts count as well as published bodies. For a
+        post's `links_by_tag` slice the tags come from doc_type "link".
+        """
+        client = _get_client()
+        r = await client.get(
+            "/api/tags", params={"type": doc_type, "field": field}, headers=_read_headers()
+        )
+        if r.status_code == 400:
+            return _error("doc_type is required", hint="Pass a name from list_block_types.")
+        r.raise_for_status()
+        tags = r.json().get("tags", [])
+        return {
+            "doc_type": doc_type,
+            "field": field,
+            "total": len(tags),
+            "tags": tags[:limit],
+            "guidance": "Tags are lowercase and hyphenated. Reuse one of these where it fits.",
+        }
+
     # ------------------------------------------------------------------
     # Document write tools
     # ------------------------------------------------------------------
@@ -582,6 +691,7 @@ def build_mcp_server(
         }
         if meta:
             payload["meta"] = meta
+        notes = await _tag_notes(doc_type, body)
         r = await client.post("/api/documents", json=payload)
         if r.status_code == 422:
             return _error(
@@ -593,7 +703,10 @@ def build_mcp_server(
                 detail=r.json(),
             )
         r.raise_for_status()
-        return r.json()
+        created = r.json()
+        if notes:
+            created["tag_notes"] = notes
+        return created
 
     @mcp.tool(annotations=UPDATE)
     async def update_document(
@@ -637,6 +750,11 @@ def build_mcp_server(
             payload["meta"] = meta
         if base_version is not None:
             payload["base_version"] = base_version
+        notes: list[dict[str, str]] = []
+        if body and any(isinstance(v, list) for v in body.values()):
+            found = await client.get(f"/api/documents/{doc_id}", headers=_read_headers())
+            if found.status_code == 200:
+                notes = await _tag_notes(found.json().get("doc_type", ""), body)
         r = await client.patch(f"/api/documents/{doc_id}", json=payload)
         if r.status_code == 409:
             detail = r.json()
@@ -666,7 +784,10 @@ def build_mcp_server(
                 detail=r.json(),
             )
         r.raise_for_status()
-        return r.json()
+        updated = r.json()
+        if notes:
+            updated["tag_notes"] = notes
+        return updated
 
     @mcp.tool(annotations=UPDATE)
     async def edit_document_body(

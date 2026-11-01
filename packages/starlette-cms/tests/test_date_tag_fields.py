@@ -82,12 +82,14 @@ def test_tag_field_meta_names_the_suggestion_source():
 
 
 def test_tags_field_meta_can_suggest_from_another_type():
-    assert TagsField(suggest_from="link").field_meta() == {
-        "field_type": "tags",
-        "suggest_from": "link",
-        "suggest_field": "tags",
-    }
-    assert TagsField().field_meta() == {"field_type": "tags"}
+    meta = TagsField(suggest_from="link").field_meta()
+    assert (meta["suggest_from"], meta["suggest_field"]) == ("link", "tags")
+    assert TagsField().field_meta()["field_type"] == "tags"
+
+
+def test_tags_field_tells_the_schema_reader_to_reuse_tags():
+    assert "Reuse an existing tag" in TagsField().field_meta()["help_text"]
+    assert TagsField(help_text="Mine.").field_meta()["help_text"] == "Mine."
 
 
 async def test_schema_carries_meta_inside_blocks(dt_client):
