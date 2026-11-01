@@ -25,6 +25,17 @@ function typeIcon(typeKey) {
 }
 
 /**
+ * The name shown for a document type: its schema `label` if it has one, else
+ * one made from the type key ("blog_post" → "Blog Posts").
+ *
+ * @param {string} typeKey
+ * @returns {string}
+ */
+function typeLabel(typeKey) {
+  return state.schema?.[typeKey]?.label || humanizeType(typeKey);
+}
+
+/**
  * Build a single sidebar type item element.
  *
  * @param {string} typeKey
@@ -37,7 +48,7 @@ function buildTypeItem(typeKey, selectType) {
     onclick: () => selectType(typeKey),
   },
     el('span', { class: 'sidebar-types__item-icon' }, typeIcon(typeKey)),
-    el('span', {}, humanizeType(typeKey))
+    el('span', {}, typeLabel(typeKey))
   );
 }
 
@@ -129,7 +140,7 @@ export function renderDocList(selectDoc, openNewDoc) {
   const newBtn = $('doc-new-btn');
   const listEl = $('doc-list');
 
-  if (titleEl) titleEl.textContent = state.activeType ? humanizeType(state.activeType) : '—';
+  if (titleEl) titleEl.textContent = state.activeType ? typeLabel(state.activeType) : '—';
   if (newBtn) newBtn.style.display = state.activeType ? '' : 'none';
   if (!listEl) return;
 
@@ -222,7 +233,7 @@ export function renderHeader(togglePublish, saveDocument, deleteActiveDoc) {
   const isNew = state.activeDocId === null && state.activeType !== null;
   const doc = state.activeDoc;
 
-  titleEl.textContent = isNew ? `New ${humanizeType(state.activeType).replace(/s$/, '')}` : docTitle(doc || {});
+  titleEl.textContent = isNew ? `New ${typeLabel(state.activeType).replace(/s$/, '')}` : docTitle(doc || {});
   if (dirtyDot) dirtyDot.classList.toggle('is-visible', state.isDirty);
   if (publishWrap) publishWrap.style.display = doc ? '' : 'none';
   if (saveBtn) saveBtn.style.display = '';

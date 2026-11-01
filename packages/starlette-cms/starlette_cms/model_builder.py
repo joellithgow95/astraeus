@@ -19,27 +19,70 @@ Usage::
 
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import Annotated, Any, Union
 
 import pydantic
-from pydantic import Field, create_model
+from pydantic import AfterValidator, Field, create_model
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticUndefined
+from pydantic_core import PydanticCustomError, PydanticUndefined
 
 from starlette_cms.fields import (
     BlockField,
     BoolField,
+    DateField,
     DocumentRef,
     ImageField,
     JSONField,
+    LinksField,
     ListField,
     NumberField,
     RichTextField,
     SelectField,
+    TagField,
+    TagsField,
     TextField,
     URLField,
     _BaseField,
 )
+
+
+class LinkItem(pydantic.BaseModel):
+    """One item of a ``LinksField``. Unknown keys are kept as written."""
+
+    model_config = pydantic.ConfigDict(extra="allow")
+
+    url: str = Field(min_length=1)
+    title: str | None = None
+    description: str | None = None
+    date_added: str | None = None
+    tags: list[str] | None = None
+
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_date(value: str) -> str:
+    """A ``DateField`` value: a real calendar date written as ``YYYY-MM-DD``."""
+    try:
+        ok = bool(_ISO_DATE.match(value)) and date.fromisoformat(value) is not None
+    except ValueError:  # 2026-02-30
+        ok = False
+    if not ok:
+        raise PydanticCustomError("date", "must be a date as YYYY-MM-DD")
+    return value
+
+
+DateStr = Annotated[str, AfterValidator(_check_date)]
+
+
+def _link_item_model(required_keys: list[str]) -> type[LinkItem]:
+    """``LinkItem``, with ``required_keys`` made required non-empty strings."""
+    if not required_keys:
+        return LinkItem
+    fields: dict[str, Any] = {k: (str, Field(min_length=1)) for k in required_keys}
+    return create_model("LinkItem_" + "_".join(sorted(required_keys)), __base__=LinkItem, **fields)
 
 
 def _make_field(
@@ -76,11 +119,15 @@ def _make_field(
         return (str, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
 
     if isinstance(default, ListField):
-        if default.blocks:
+        if isinstance(default.item_type, DocumentRef):
+            # Ordered document IDs; existence, type and duplicates are checked
+            # against the database on write (api/documents.py).
+            list_type: Any = list[str]
+        elif default.blocks:
             # Polymorphic block list — discriminated union
             union_type: Any = Union[tuple(default.blocks)]  # type: ignore[arg-type]  # noqa: UP007
             item_ann = Annotated[union_type, Field(discriminator="block_type")]
-            list_type: Any = list[item_ann]  # type: ignore[valid-type]
+            list_type = list[item_ann]  # type: ignore[valid-type]
         elif default.item_type is not None:
             list_type = list[default.item_type]  # type: ignore[valid-type]
         else:
@@ -149,6 +196,27 @@ def _make_field(
             return (json_type, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
         return (json_type, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
 
+    if isinstance(default, TagField):
+        if optional:
+            return (str | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (str, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, DateField):
+        if optional:
+            return (DateStr | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (DateStr, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, TagsField):
+        if optional:
+            return (list[str] | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (list[str], Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
+    if isinstance(default, LinksField):
+        links_type: Any = list[_link_item_model(default.required_keys)]  # type: ignore[misc]
+        if optional:
+            return (links_type | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
+        return (links_type, Field(..., json_schema_extra=extra))  # type: ignore[return-value]
+
     if isinstance(default, DocumentRef):
         if optional:
             return (str | None, Field(default=None, json_schema_extra=extra))  # type: ignore[return-value]
@@ -210,6 +278,35 @@ def _collect_field_defs(cls: type) -> dict[str, tuple[Any, FieldInfo]]:
     return field_defs
 
 
+def _ref_attrs(cls: type, model: Any) -> None:
+    """Attach the reference fields of ``cls`` to ``model`` (read by ``starlette_cms.refs``).
+
+    - ``__ref_fields__``: single ``DocumentRef`` fields.
+    - ``__ref_list_fields__``: ``ListField(DocumentRef(...))`` fields, by their item ref.
+    - ``__block_fields__``: fields holding nested block models, so refs inside
+      blocks are found too.
+    """
+    refs: dict[str, DocumentRef] = {}
+    ref_lists: dict[str, DocumentRef] = {}
+    block_fields: dict[str, list[Any]] = {}
+    for attr, value in vars(cls).items():
+        if isinstance(value, DocumentRef):
+            refs[attr] = value
+        elif isinstance(value, ListField):
+            if isinstance(value.item_type, DocumentRef):
+                ref_lists[attr] = value.item_type
+            else:
+                models = value.blocks or [value.item_type]
+                if blocks := [m for m in models if isinstance(m, type) and issubclass(m, pydantic.BaseModel)]:
+                    block_fields[attr] = blocks
+        elif isinstance(value, BlockField):
+            if isinstance(value.block_type, type) and issubclass(value.block_type, pydantic.BaseModel):
+                block_fields[attr] = [value.block_type]
+    model.__ref_fields__ = refs
+    model.__ref_list_fields__ = ref_lists
+    model.__block_fields__ = block_fields
+
+
 def get_immutable_fields(cls: type) -> list[str]:
     """Return the list of field names that are marked ``immutable=True``."""
     result = []
@@ -244,9 +341,7 @@ def build_block_model(name: str, cls: type) -> type[pydantic.BaseModel]:
     model = create_model(cls.__name__, **field_defs)  # type: ignore[call-overload]
     model.__block_type__ = name  # type: ignore[attr-defined]
     model.__immutable_fields__ = get_immutable_fields(cls)  # type: ignore[attr-defined]
-    model.__ref_fields__ = {  # type: ignore[attr-defined]
-        attr: value for attr, value in vars(cls).items() if isinstance(value, DocumentRef)
-    }
+    _ref_attrs(cls, model)
     model.model_rebuild()
     return model
 
@@ -275,9 +370,7 @@ def build_document_model(name: str, cls: type) -> type[pydantic.BaseModel]:
     ]
 
     model.__immutable_fields__ = get_immutable_fields(cls)  # type: ignore[attr-defined]
-    model.__ref_fields__ = {  # type: ignore[attr-defined]
-        attr: value for attr, value in vars(cls).items() if isinstance(value, DocumentRef)
-    }
+    _ref_attrs(cls, model)
 
     model.model_rebuild()
     return model

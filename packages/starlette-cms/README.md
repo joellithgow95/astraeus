@@ -39,6 +39,7 @@ This gives you:
 - `GET/PATCH/DELETE /cms/api/documents/{id}` — get, update, delete
 - `POST /cms/api/documents/{id}/publish` — publish with webhook delivery
 - `GET /cms/api/schema` — JSON Schema introspection with editor hints
+- `GET /cms/api/tags?type=<doc type>[&field=<name or a.b path>]` — distinct tags in use, most used first
 
 ## Field types
 
@@ -52,8 +53,12 @@ This gives you:
 | `BoolField` | `bool` | Toggles |
 | `URLField` | `str` | URLs |
 | `JSONField` | `dict \| list \| None` | Arbitrary JSON |
+| `TagsField` | `list[str]` | Tags, edited as chips with type-ahead |
+| `TagField` | `str` | One tag, suggested from the tags on another type (`suggest_from="link"`), e.g. a "links tagged X" slice |
+| `DateField` | `str` | A calendar date as `YYYY-MM-DD`, checked on write (a 422 for `2026-02-30`); a date picker in the editor |
+| `LinksField` | `list[LinkItem]` | External links `{url, title, description, date_added, tags}`; unknown keys kept; `required_keys=` makes more than `url` required |
 | `DocumentRef` | `str` | Foreign key to another document |
-| `ListField` | `list[...]` | Ordered lists of blocks |
+| `ListField` | `list[...]` | Ordered lists of blocks, or of document IDs with `ListField(DocumentRef(...))` |
 | `BlockField` | model | Single nested block |
 
 All fields support `required`, `label`, `help_text`, `immutable`, and other common parameters.
@@ -83,6 +88,22 @@ class Review:
     submission_ref: str = DocumentRef(block_type="submission", on_delete="block")
     score: float = NumberField(required=True)
 ```
+
+A list of references is `ListField(DocumentRef(...))`. It stores IDs in order; on write each must
+exist and have the declared type, and none may repeat. `on_delete` applies per entry
+(`"nullify"` drops the deleted ID from the list). References inside blocks
+(`ListField(blocks=[...])`, `BlockField`) are checked the same way, so a block can hold picked refs.
+`label_field=` names the target's field the editor shows (`DocumentRef(block_type="spotify_like", label_field="track")`).
+
+```python
+@cms.document("blog_post")
+class Post:
+    see_also: list | None = ListField(DocumentRef(block_type="definition", on_delete="nullify"))
+```
+
+Reading: `GET /api/documents?type=blog_post&resolve_refs=see_also` adds `see_also__resolved`, the
+referenced documents in stored order (one query per field). `?ids=a,b` fetches documents by ID, and
+`?q=` matches a case-insensitive substring of the slug or any top-level text field.
 
 ## Testing utilities
 

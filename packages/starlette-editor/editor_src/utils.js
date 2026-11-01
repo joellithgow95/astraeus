@@ -33,11 +33,13 @@ export function humanizeFieldName(name) {
  * Get a display title for a document — prefers title > name > slug > id prefix > "Untitled".
  *
  * @param {object|null} doc
+ * @param {string} [labelField] — body field to prefer (a DocumentRef's `ref_label_field`)
  * @returns {string}
  */
-export function docTitle(doc) {
+export function docTitle(doc, labelField) {
   const body = doc?.body || {};
-  return body.title || body.name || body.headline || doc?.slug || doc?.id?.slice(0, 8) || 'Untitled';
+  const label = labelField ? body[labelField] : null;
+  return (typeof label === 'string' && label) || body.title || body.name || body.headline || doc?.slug || doc?.id?.slice(0, 8) || 'Untitled';
 }
 
 /**

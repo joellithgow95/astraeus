@@ -24,6 +24,7 @@ class BlockRegistration:
     model: type
     append_only: bool = field(default=False)
     group: str | None = field(default=None)
+    label: str | None = field(default=None)
     singleton: bool = field(default=False)
 
 
@@ -88,6 +89,7 @@ class BlockRegistry:
         singleton: bool = False,
         append_only: bool = False,
         group: str | None = None,
+        label: str | None = None,
     ) -> None:
         """Register a single block class, converting it to a Pydantic model if needed."""
         name = getattr(block_cls, "__block_type__", None)
@@ -121,6 +123,7 @@ class BlockRegistry:
             singleton=effective_singleton,
             append_only=effective_append_only,
             group=effective_group,
+            label=label,
         )
 
     def register_blocks(self, block_classes: list[type], *, override: bool = False) -> None:

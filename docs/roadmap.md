@@ -296,6 +296,19 @@ Together these establish Astraeus as a **governed data platform** — not just a
 
 ---
 
+## Data documents and post slices ✅ ([ADR 026](decisions/026-data-documents-and-post-slices.md))
+
+**Goal:** Gateways write one data document per item; posts show slices of that data.
+
+- [x] `TagsField` chips and `LinksField` cards
+- [x] `ListField(DocumentRef(...))` with write-time validation, and a multi-ref picker in the editor
+- [x] Document types filed under a sidebar group (`group=`)
+- [x] joellithgow.com: `spotify_like` / `inat_observation` data documents, slices on `blog_post`, months and outings migrated
+- [ ] Slice editor in the editor, and "paste a URL" creating a `link` document
+- [ ] joellithgow.com: embedded post links moved to `link` documents
+
+---
+
 ## starlette-cms-gateways Phase GW-2 — Tests ✅
 
 **Goal:** Full test coverage for `import_ref` CMS changes and gateway framework.

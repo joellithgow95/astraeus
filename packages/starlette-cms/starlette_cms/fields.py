@@ -78,10 +78,16 @@ class ListField(_BaseField):
     A list of items. Pass a single block class for a homogeneous list,
     or a list of block classes for a polymorphic block list.
 
+    Pass a ``DocumentRef`` for an ordered list of references (ADR 010): the
+    list stores document IDs, each checked on write like a single ref, with
+    no ID listed twice. ``on_delete`` works per entry: ``"nullify"`` drops
+    the deleted ID from the list.
+
     Examples::
 
         cards: list = ListField(CardBlock)
         body: list = ListField(blocks=[HeroBlock, CardSectionBlock])
+        songs: list = ListField(DocumentRef(block_type="spotify_like", on_delete="nullify"))
     """
 
     item_type: Any = None
@@ -98,6 +104,10 @@ class ListField(_BaseField):
 
     def field_meta(self) -> dict[str, Any]:
         m = super().field_meta()
+        if isinstance(self.item_type, DocumentRef):
+            m.update(self.item_type.ref_meta())
+            m["field_type"] = "document_ref_list"
+            return m
         m["field_type"] = "block_list"
         return m
 
@@ -216,6 +226,116 @@ class JSONField(_BaseField):
 
 
 @dataclass
+class TagsField(_BaseField):
+    """A list of short tag strings, edited as chips.
+
+    Stored as ``list[str]``, the same shape a ``JSONField`` holding tags
+    already has, so switching a field to it needs no migration. The editor
+    offers tags already used on the field's document type
+    (``GET /api/tags``), and lowercases and hyphenates what you type. The
+    API does not rewrite tags on write: a gateway that owns ``tags`` hashes
+    what it sent, and a stored value it did not send would rewrite the
+    document on every sync.
+
+    ``suggest_from`` offers the tags of another type instead, as on
+    ``TagField``: a slice naming several link tags suggests from ``link``.
+
+    Examples::
+
+        tags: list | None = TagsField()
+        tags: list = TagsField(suggest_from="link")
+    """
+
+    suggest_from: str | None = None
+    suggest_field: str = "tags"
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "tags"
+        if self.suggest_from:
+            m["suggest_from"] = self.suggest_from
+            m["suggest_field"] = self.suggest_field
+        return m
+
+
+@dataclass
+class TagField(_BaseField):
+    """One tag string, picked from the tags already used on another type.
+
+    For a field that names a group of documents by tag, such as a post's
+    "every link tagged developer-blog" slice. ``suggest_from`` is the document
+    type whose tags the editor offers (``GET /api/tags``), and
+    ``suggest_field`` the field on it (default ``tags``). As with
+    ``TagsField``, the editor lowercases and hyphenates what you type and the
+    API stores the value as written.
+
+    Examples::
+
+        tag: str = TagField(required=True, suggest_from="link")
+    """
+
+    suggest_from: str | None = None
+    suggest_field: str = "tags"
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "tag"
+        if self.suggest_from:
+            m["suggest_from"] = self.suggest_from
+            m["suggest_field"] = self.suggest_field
+        return m
+
+
+@dataclass
+class DateField(_BaseField):
+    """A calendar date, stored as a ``YYYY-MM-DD`` string.
+
+    Checked on write: ``2026-02-30`` or ``Oct 1`` fails with a 422 instead of
+    reaching a site build. The editor shows a date picker.
+
+    Examples::
+
+        from_date: str = DateField(required=True)
+        date_added: str | None = DateField()
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "date"
+        return m
+
+
+@dataclass
+class LinksField(_BaseField):
+    """A list of external links, each ``{url, title, description, date_added, tags}``.
+
+    Only ``url`` is required unless ``required_keys`` names more of
+    ``title``, ``description`` and ``date_added`` (for a site whose build
+    rejects a link without them). Unknown keys on an item are kept, so data
+    written by an older schema or a script survives an edit in the editor.
+
+    Examples::
+
+        links: list | None = LinksField(help_text="Links shown on the post's card")
+        links: list | None = LinksField(required_keys=["title", "date_added"])
+    """
+
+    required_keys: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        unknown = set(self.required_keys) - {"title", "description", "date_added"}
+        if unknown:
+            raise ValueError(f"LinksField.required_keys: unknown keys {sorted(unknown)}")
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "links"
+        if self.required_keys:
+            m["required_keys"] = list(self.required_keys)
+        return m
+
+
+@dataclass
 class DocumentRef(_BaseField):
     """
     A typed foreign key to another document.
@@ -228,6 +348,9 @@ class DocumentRef(_BaseField):
     - ``"nullify"`` — set this field to None in all referencing documents
     - ``"cascade"`` — delete all documents referencing the target (dangerous)
 
+    ``label_field`` names the target's body field the editor shows in its
+    picker, for a type with no ``title`` or ``name`` (``label_field="track"``).
+
     Example::
 
         submission_ref: str = DocumentRef(block_type="jewelry_item", immutable=True)
@@ -235,11 +358,19 @@ class DocumentRef(_BaseField):
 
     block_type: str | None = None
     on_delete: str = "block"
+    label_field: str | None = None
+
+    def ref_meta(self) -> dict[str, Any]:
+        """The target-describing keys, shared with ``ListField(DocumentRef(...))``."""
+        meta: dict[str, Any] = {"on_delete": self.on_delete}
+        if self.block_type:
+            meta["ref_block_type"] = self.block_type
+        if self.label_field:
+            meta["ref_label_field"] = self.label_field
+        return meta
 
     def field_meta(self) -> dict[str, Any]:
         meta = super().field_meta()
-        if self.block_type:
-            meta["ref_block_type"] = self.block_type
-        meta["on_delete"] = self.on_delete
+        meta.update(self.ref_meta())
         meta["field_type"] = "document_ref"
         return meta

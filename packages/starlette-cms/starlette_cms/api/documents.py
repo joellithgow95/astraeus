@@ -25,6 +25,7 @@ from starlette_cms.api.changesets import (
 )
 from starlette_cms.api.webhooks import fire_event
 from starlette_cms.auth import require_auth
+from starlette_cms.refs import RefSite, iter_ref_sites, refs_to
 from starlette_cms.tables import CMSChangeset, CMSChangesetDocument, CMSDocument, CMSDocumentVersion
 
 if TYPE_CHECKING:
@@ -32,6 +33,16 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _validation_detail(exc: ValidationError) -> list[dict[str, Any]]:
+    """``exc.errors()`` as JSON-safe dicts.
+
+    A custom validator that raises ``ValueError`` puts the exception itself in
+    the error's ``ctx``, which ``JSONResponse`` cannot serialise (a 500 instead
+    of the 422); pydantic's own JSON form writes it as its message.
+    """
+    return json.loads(exc.json())
 
 
 def _utcnow() -> str:
@@ -54,6 +65,19 @@ def _coerce_filter_value(v: str) -> Any:
     except ValueError:
         pass
     return v
+
+
+def _strings_at(value: Any, path: list[str]) -> list[str]:
+    """Non-empty strings in the list(s) at a dotted ``path``, stepping into lists on the way."""
+    if not path:
+        if isinstance(value, list):
+            return [v for v in value if isinstance(v, str) and v]
+        return []
+    if isinstance(value, list):
+        return [s for item in value for s in _strings_at(item, path)]
+    if isinstance(value, dict):
+        return _strings_at(value.get(path[0]), path[1:])
+    return []
 
 
 def _matches_filters(doc: dict, filters: dict[str, Any]) -> bool:
@@ -146,131 +170,145 @@ def _row_to_dict(row: dict[str, Any], *, use_draft: bool = False) -> dict[str, A
     return result
 
 
+def _matches_search(doc: dict[str, Any], search: str) -> bool:
+    """True when ``search`` (casefolded) is in the slug or any top-level string of the body.
+
+    Backs ``?q=``, which the editor's reference pickers use to find a document
+    by title (or track, term, ...) among more than fit on one page.
+    """
+    if not search:
+        return True
+    body = doc.get("body") if isinstance(doc.get("body"), dict) else {}
+    texts = [doc.get("slug"), *body.values()]
+    return any(isinstance(t, str) and search in t.casefold() for t in texts)
+
+
 async def _validate_refs(
     cms: CMS, doc_model: Any, body_data: dict[str, Any]
 ) -> JSONResponse | None:
     """
-    For each DocumentRef field in body_data, verify the referenced document exists
-    and has the correct block_type. Returns a 422 JSONResponse on failure, None on success.
+    Check every reference in ``body_data`` — single refs, lists of refs, and
+    either inside nested blocks — against the database: each ID must exist
+    and have the declared block_type, and a list may not repeat an ID.
+    One query covers the whole body. Returns a 422 JSONResponse on failure,
+    None on success.
     """
-    ref_fields: dict[str, Any] = getattr(doc_model, "__ref_fields__", {})
-    for field_name, ref_descriptor in ref_fields.items():
-        ref_id = body_data.get(field_name)
-        if ref_id is None:
-            continue  # optional ref not provided — skip
-        if not isinstance(ref_id, str):
-            return JSONResponse(
-                {"error": f"{field_name}: DocumentRef must be a string ID"},
-                status_code=422,
-            )
-        # Check existence and type
-        rows = (
-            await CMSDocument.select(CMSDocument.doc_type)
-            .where(CMSDocument.id == ref_id)
-            .limit(1)
-            .run()
-        )
-        if not rows:
-            return JSONResponse(
-                {"error": f"{field_name}: referenced document {ref_id!r} not found"},
-                status_code=422,
-            )
-        if ref_descriptor.block_type and rows[0]["doc_type"] != ref_descriptor.block_type:
-            return JSONResponse(
-                {
-                    "error": (
-                        f"{field_name}: expected block_type {ref_descriptor.block_type!r}, "
-                        f"got {rows[0]['doc_type']!r}"
-                    )
-                },
-                status_code=422,
-            )
+    sites = list(iter_ref_sites(doc_model, body_data))
+    for site in sites:
+        if (msg := site.check_shape()) is not None:
+            return JSONResponse({"error": msg}, status_code=422)
+
+    wanted = {ref_id for site in sites for ref_id in site.ids()}
+    if not wanted:
+        return None
+    rows = (
+        await CMSDocument.select(CMSDocument.id, CMSDocument.doc_type)
+        .where(CMSDocument.id.is_in(list(wanted)))
+        .run()
+    )
+    types = {r["id"]: r["doc_type"] for r in rows}
+
+    for site in sites:
+        for ref_id in site.ids():
+            if ref_id not in types:
+                return JSONResponse(
+                    {"error": f"{site.path}: referenced document {ref_id!r} not found"},
+                    status_code=422,
+                )
+            if site.ref.block_type and types[ref_id] != site.ref.block_type:
+                return JSONResponse(
+                    {
+                        "error": (
+                            f"{site.path}: expected block_type {site.ref.block_type!r}, "
+                            f"got {types[ref_id]!r}"
+                        )
+                    },
+                    status_code=422,
+                )
     return None
+
+
+def _parse_body(raw: Any, doc_id: str) -> dict[str, Any] | None:
+    if raw is None or isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        logger.warning("starlette_cms.documents.ref_body_parse_failed", doc_id=doc_id)
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 async def _check_ref_integrity(cms: CMS, doc_id: str, doc_type: str) -> JSONResponse | None:
     """
-    Scan all registered block/document types for DocumentRef fields pointing at this
-    doc_type with on_delete="block". If any referencing documents exist, return 409.
-    For on_delete="nullify", set the ref field to None in all referencing documents.
+    Apply ``on_delete`` for every reference to ``doc_id`` (a ``doc_type``), in
+    any registered type's published body or draft, single, listed or nested:
+
+    - ``"block"`` anywhere → 409, and nothing is changed;
+    - ``"nullify"`` → a single ref becomes None, a list drops the ID;
+    - ``"cascade"`` → the referencing document is deleted.
     """
     all_models: list[Any] = list(cms.registry._blocks.values())
     all_models.extend(cms._document_types.values())
 
+    # (referencing type, row id, column, parsed body, sites pointing at doc_id)
+    hits: list[tuple[str, str, Any, dict[str, Any], list[RefSite]]] = []
     for model in all_models:
-        ref_fields: dict[str, Any] = getattr(model, "__ref_fields__", {})
-        for field_name, ref_desc in ref_fields.items():
-            if ref_desc.block_type != doc_type:
-                continue
-            if ref_desc.on_delete not in ("block", "nullify", "cascade"):
-                continue
+        if not refs_to(model, doc_type):
+            continue
+        model_doc_type: str = (
+            getattr(model, "__document_type__", None)
+            or getattr(model, "__block_type__", None)
+            or ""
+        )
+        if not model_doc_type:
+            continue
 
-            model_doc_type: str = (
-                getattr(model, "__document_type__", None)
-                or getattr(model, "__block_type__", None)
-                or ""
-            )
-            if not model_doc_type:
-                continue
+        rows = (
+            await CMSDocument.select(CMSDocument.id, CMSDocument.body, CMSDocument.draft_body)
+            .where(CMSDocument.doc_type == model_doc_type)
+            .run()
+        )
+        for row in rows:
+            for column, key in ((CMSDocument.body, "body"), (CMSDocument.draft_body, "draft_body")):
+                body = _parse_body(row.get(key), row["id"])
+                if not body:
+                    continue
+                sites = [
+                    site
+                    for site in iter_ref_sites(model, body)
+                    if site.ref.block_type == doc_type and doc_id in site.ids()
+                ]
+                if sites:
+                    hits.append((model_doc_type, row["id"], column, body, sites))
 
-            rows = (
-                await CMSDocument.select(CMSDocument.id, CMSDocument.body)
-                .where(CMSDocument.doc_type == model_doc_type)
-                .run()
-            )
-
-            referencing_ids = []
-            for row in rows:
-                body = row["body"]
-                if isinstance(body, str):
-                    try:
-                        body = json.loads(body)
-                    except Exception:
-                        logger.warning(
-                            "starlette_cms.documents.ref_body_parse_failed",
-                            doc_id=row["id"],
-                        )
-                        body = {}
-                if body.get(field_name) == doc_id:
-                    referencing_ids.append(row["id"])
-
-            if not referencing_ids:
-                continue
-
-            if ref_desc.on_delete == "block":
+    for model_doc_type, _row_id, _column, _body, sites in hits:
+        for site in sites:
+            if site.ref.on_delete == "block":
                 return JSONResponse(
-                    {"error": f"Cannot delete: referenced by {model_doc_type}.{field_name}"},
+                    {"error": f"Cannot delete: referenced by {model_doc_type}.{site.path}"},
                     status_code=409,
                 )
-            elif ref_desc.on_delete == "nullify":
-                for ref_doc_id in referencing_ids:
-                    ref_rows = await CMSDocument.select().where(CMSDocument.id == ref_doc_id).run()
-                    if not ref_rows:
-                        continue
-                    ref_body = ref_rows[0]["body"]
-                    if isinstance(ref_body, str):
-                        try:
-                            ref_body = json.loads(ref_body)
-                        except Exception:
-                            logger.warning(
-                                "starlette_cms.documents.nullify_body_parse_failed",
-                                doc_id=ref_doc_id,
-                            )
-                            ref_body = {}
-                    ref_body[field_name] = None
-                    await (
-                        CMSDocument.update(
-                            {
-                                CMSDocument.body: json.dumps(ref_body),
-                                CMSDocument.updated_at: datetime.now(UTC),
-                            }
-                        )
-                        .where(CMSDocument.id == ref_doc_id)
-                        .run()
-                    )
-            elif ref_desc.on_delete == "cascade":
-                for ref_doc_id in referencing_ids:
-                    await CMSDocument.delete().where(CMSDocument.id == ref_doc_id).run()
+
+    cascaded: set[str] = set()
+    for _type, row_id, column, body, sites in hits:
+        if row_id in cascaded:
+            continue
+        if any(site.ref.on_delete == "cascade" for site in sites):
+            await CMSDocument.delete().where(CMSDocument.id == row_id).run()
+            cascaded.add(row_id)
+            continue
+        changed = False
+        for site in sites:
+            if site.ref.on_delete == "nullify":
+                site.remove(doc_id)
+                changed = True
+        if changed:
+            await (
+                CMSDocument.update({column: json.dumps(body), CMSDocument.updated_at: datetime.now(UTC)})
+                .where(CMSDocument.id == row_id)
+                .run()
+            )
 
     return None
 
@@ -282,25 +320,31 @@ async def _bulk_resolve_refs(
     Bulk-resolve named DocumentRef fields across a list of documents.
 
     For each field name, issues a single IN query and attaches the resolved
-    document dict at ``{field_name}__resolved`` in each document's body.
+    document at ``{field_name}__resolved`` in each document's body: one dict
+    for a single ref, a list in stored order for a list of refs (an ID whose
+    document is gone is left out).
     """
     for field_name in resolve_fields:
-        ids = [
-            d["body"].get(field_name)
-            for d in docs
-            if isinstance(d.get("body"), dict) and d["body"].get(field_name)
-        ]
+        ids: set[str] = set()
+        for d in docs:
+            value = d["body"].get(field_name) if isinstance(d.get("body"), dict) else None
+            if isinstance(value, str) and value:
+                ids.add(value)
+            elif isinstance(value, list):
+                ids.update(v for v in value if isinstance(v, str))
         if not ids:
             continue
-        ref_rows = await CMSDocument.select().where(CMSDocument.id.is_in(ids)).run()
+        ref_rows = await CMSDocument.select().where(CMSDocument.id.is_in(list(ids))).run()
         ref_map = {r["id"]: _row_to_dict(r) for r in ref_rows}
         for doc in docs:
             body = doc.get("body")
             if not isinstance(body, dict):
                 continue
-            ref_id = body.get(field_name)
-            if ref_id and ref_id in ref_map:
-                body[f"{field_name}__resolved"] = ref_map[ref_id]
+            value = body.get(field_name)
+            if isinstance(value, list):
+                body[f"{field_name}__resolved"] = [ref_map[v] for v in value if v in ref_map]
+            elif value and value in ref_map:
+                body[f"{field_name}__resolved"] = ref_map[value]
     return docs
 
 
@@ -320,6 +364,8 @@ def make_document_routes(cms: CMS) -> list[Route]:
         published_param = params.get("published")
         has_draft_param = params.get("has_draft")
         resolve_refs_param = params.get("resolve_refs")
+        ids = [i.strip() for i in (params.get("ids") or "").split(",") if i.strip()]
+        search = (params.get("q") or "").strip().casefold()
         try:
             limit = int(params.get("limit", 20))
             offset = int(params.get("offset", 0))
@@ -358,6 +404,8 @@ def make_document_routes(cms: CMS) -> list[Route]:
             query = query.where(CMSDocument.slug == slug)
         if import_ref is not None:
             query = query.where(CMSDocument.import_ref == import_ref)
+        if ids:
+            query = query.where(CMSDocument.id.is_in(ids))
         if published_param is not None:
             published = published_param.lower() in ("true", "1", "yes")
             query = query.where(CMSDocument.published == published)
@@ -381,10 +429,14 @@ def make_document_routes(cms: CMS) -> list[Route]:
             span.set_attribute("limit", limit)
             span.set_attribute("offset", offset)
             try:
-                if key_value_filters:
+                if key_value_filters or search:
                     all_rows = await query.run()
                     all_docs = [_row_to_dict(r) for r in all_rows]
-                    filtered_docs = [d for d in all_docs if _matches_filters(d, key_value_filters)]
+                    filtered_docs = [
+                        d
+                        for d in all_docs
+                        if _matches_filters(d, key_value_filters) and _matches_search(d, search)
+                    ]
                     total = len(filtered_docs)
                     docs = filtered_docs[offset : offset + limit]
                 else:
@@ -396,6 +448,8 @@ def make_document_routes(cms: CMS) -> list[Route]:
                         count_query = count_query.where(CMSDocument.slug == slug)
                     if import_ref is not None:
                         count_query = count_query.where(CMSDocument.import_ref == import_ref)
+                    if ids:
+                        count_query = count_query.where(CMSDocument.id.is_in(ids))
                     if published_param is not None:
                         count_query = count_query.where(CMSDocument.published == published)  # type: ignore[possibly-undefined]
                     if has_draft_param is not None and has_draft_param.lower() in (
@@ -464,7 +518,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
             validated = doc_model.model_validate(body_data)
         except ValidationError as exc:
             return JSONResponse(
-                {"error": "Validation failed", "detail": exc.errors()},
+                {"error": "Validation failed", "detail": _validation_detail(exc)},
                 status_code=422,
             )
 
@@ -698,7 +752,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
                 merged_body = validated.model_dump(exclude_none=True)
             except ValidationError as exc:
                 return JSONResponse(
-                    {"error": "Validation failed", "detail": exc.errors()},
+                    {"error": "Validation failed", "detail": _validation_detail(exc)},
                     status_code=422,
                 )
 
@@ -1209,7 +1263,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
             validated = block_model.model_validate(body_data)
         except ValidationError as exc:
             return JSONResponse(
-                {"error": "Validation failed", "detail": exc.errors()},
+                {"error": "Validation failed", "detail": _validation_detail(exc)},
                 status_code=422,
             )
 
@@ -1281,8 +1335,52 @@ def make_document_routes(cms: CMS) -> list[Route]:
         )
         return JSONResponse({"history": [_row_to_dict(r) for r in rows]})
 
+    async def list_tags(request: Request) -> JSONResponse:
+        """List the distinct tags used on one document type, most used first.
+
+        ``GET /api/tags?type=blog_post`` reads the ``tags`` field;
+        ``&field=<name>`` reads another list-of-strings field, and a dotted
+        path reads one inside a list of objects (``field=links.tags`` gives
+        the tags on a ``LinksField``'s items). A document's
+        draft counts as well as its published body, so a tag typed on a draft
+        is offered on the next one before anything is published. Each tag
+        counts once per document.
+
+        This backs the editor's tag chips (``TagsField``).
+        """
+        if cms.read_auth:
+            if (err := await require_auth(request, cms)) is not None:
+                return err
+
+        doc_type = request.query_params.get("type") or ""
+        if not doc_type:
+            return JSONResponse({"error": "type is required"}, status_code=400)
+        path = (request.query_params.get("field") or "tags").split(".")
+
+        rows = (
+            await CMSDocument.select(CMSDocument.body, CMSDocument.draft_body)
+            .where(CMSDocument.doc_type == doc_type)
+            .run()
+        )
+        counts: dict[str, int] = {}
+        for row in rows:
+            seen: set[str] = set()
+            for raw in (row.get("body"), row.get("draft_body")):
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                seen.update(_strings_at(raw, path))
+            for tag in seen:
+                counts[tag] = counts.get(tag, 0) + 1
+
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        return JSONResponse({"tags": [{"tag": t, "count": n} for t, n in ranked]})
+
     return [
         Route("/api/documents", endpoint=list_documents, methods=["GET"]),
+        Route("/api/tags", endpoint=list_tags, methods=["GET"]),
         Route("/api/documents", endpoint=create_document, methods=["POST"]),
         Route(
             "/api/documents/singleton/{block_type}",

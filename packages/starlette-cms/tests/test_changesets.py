@@ -399,7 +399,7 @@ async def test_publish_changeset_fires_one_webhook(cs_cms: CMS, cs_client: httpx
     # Patch _fire_changeset_webhook at the module level to capture calls synchronously
     fired_calls: list[tuple] = []
 
-    async def fake_fire(cms_arg, event, changeset_id, title, doc_ids, now) -> None:
+    async def fake_fire(cms_arg, event, changeset_id, title, doc_ids, now, **kwargs) -> None:
         fired_calls.append((event, changeset_id, list(doc_ids)))
 
     import asyncio
@@ -415,6 +415,50 @@ async def test_publish_changeset_fires_one_webhook(cs_cms: CMS, cs_client: httpx
     assert event == "changeset.published"
     assert called_cs_id == cs_id
     assert set(called_doc_ids) == {doc_id1, doc_id2}
+
+
+async def test_publish_changeset_reports_staged_deletions_in_its_one_webhook(
+    cs_cms: CMS, cs_client: httpx.AsyncClient
+) -> None:
+    """A staged deletion fires no document.deleted: the changeset's one event lists it."""
+    cs_id = (await cs_client.post("/api/changesets", json={"title": "CS-Swap"})).json()["id"]
+    new_id = await _create_doc(cs_client)
+    old_id = await _create_doc(cs_client)
+    await cs_client.post(f"/api/documents/{old_id}/publish")
+    await cs_client.post(f"/api/changesets/{cs_id}/documents/{new_id}")
+    staged = await cs_client.post(
+        f"/api/documents/{old_id}/draft-delete",
+        json={"deleted": True},
+        headers={"x-active-changeset-id": cs_id},
+    )
+    assert staged.status_code == 200
+
+    changeset_calls: list[dict] = []
+    document_events: list[str] = []
+
+    async def fake_changeset_fire(cms_arg, event, changeset_id, title, doc_ids, now, **kwargs) -> None:
+        changeset_calls.append({"event": event, "doc_ids": set(doc_ids), **kwargs})
+
+    async def fake_document_fire(cms_arg, event, *args, **kwargs) -> None:
+        document_events.append(event)
+
+    import asyncio
+
+    with (
+        patch("starlette_cms.api.changesets._fire_changeset_webhook", new=fake_changeset_fire),
+        patch("starlette_cms.api.webhooks.fire_event", new=fake_document_fire),
+    ):
+        pub_resp = await cs_client.post(f"/api/changesets/{cs_id}/publish")
+        assert pub_resp.status_code == 200
+        await asyncio.sleep(0)
+
+    assert document_events == []
+    assert len(changeset_calls) == 1
+    assert changeset_calls[0]["event"] == "changeset.published"
+    assert changeset_calls[0]["doc_ids"] == {new_id, old_id}
+    assert changeset_calls[0]["deleted_ids"] == [old_id]
+    assert (await cs_client.get(f"/api/documents/{old_id}")).status_code == 404
+    assert (await cs_client.get(f"/api/documents/{new_id}")).json()["published"] is True
 
 
 # ---------------------------------------------------------------------------

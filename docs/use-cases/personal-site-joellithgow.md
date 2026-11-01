@@ -6,6 +6,12 @@
 **Packages:** `starlette-cms`, `starlette-editor`, `mediakit` (full stack)  
 **Roadmap impact:** This is the original design driver — headless-first architecture, MCP as first-class goal, Netlify webhook, agent-driven publishing, ProseMirror editor
 
+> **Current state (2026-10-28).** The sketch below is the original plan from 2026-06. The live site has moved on:
+> the CMS runs in Joel's k3s cluster, not Fly.io or Railway, and the content model follows
+> [ADR 026](../decisions/026-data-documents-and-post-slices.md): one `blog_post` type that shows collected data
+> (Spotify likes, iNaturalist observations, definitions, links) through slices, and gateways that write one data
+> document per item. The joellithgow repo's `docs/blog-conventions.md` describes the model as it is.
+
 ---
 
 ## Background
