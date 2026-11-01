@@ -12,7 +12,7 @@ import json
 from typing import Annotated, Any, Literal
 
 import httpx
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -146,6 +146,29 @@ def summarize_document(doc: dict[str, Any]) -> DocumentSummary:
     )
 
 
+class BodyEdit(BaseModel):
+    """One anchored edit to a rich-text body (see edit_document_body)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    find: str | None = Field(
+        default=None, description="Exact text to replace, copied from the current draft."
+    )
+    section: str | None = Field(
+        default=None, description="A heading: replace it and its section."
+    )
+    replace: str | None = Field(
+        default=None, description="Markdown to put in place of find/section; empty deletes."
+    )
+    insert: str | None = Field(default=None, description="Markdown to add.")
+    after_heading: str | None = Field(
+        default=None, description="With insert: add at the end of this heading's section."
+    )
+    at: Literal["end", "start"] | None = Field(
+        default=None, description='With insert: "end" (default) or "start" of the body.'
+    )
+
+
 def _error(message: str, hint: str | None = None, **extra: Any) -> dict[str, Any]:
     """Build an error payload: what went wrong, plus what to try next."""
     payload: dict[str, Any] = {"error": message}
@@ -273,16 +296,15 @@ def build_mcp_server(
             "Keep limit small and page with offset / next_offset.\n"
             "3. get_document(doc_id) to read one document's full body. It reads the "
             "DRAFT (what the editor shows) and its draft_version.\n"
-            "4. create_document / update_document / insert_into_document write DRAFTS "
+            "4. create_document / update_document / edit_document_body write DRAFTS "
             "only and do not change the public site. Check the result, then "
             "publish_document to go live.\n"
             "Rich-text fields (the post body) may be open in an editor while you work. "
-            "To ADD to one (a new section, a paragraph), use insert_into_document with "
-            "markdown: it lands in the live document and the person editing sees it "
-            "appear, with their typing intact. Never rewrite a whole body to add to "
-            "it. If you must replace a body, pass base_version (the draft_version "
-            "from get_document); a stale one is refused instead of overwriting newer "
-            "edits.\n"
+            "Change one with edit_document_body: anchored edits (find exact text and "
+            "replace it, replace a section by its heading, insert after a heading or at "
+            "the end) applied to the live draft, so the person editing sees them land "
+            "with their typing intact. Use update_document for plain fields (title, "
+            "tags, image); never rewrite a whole body through it to change part of it.\n"
             "5. publish_document and unpublish_document change the public site and "
             "trigger a site rebuild; only call them when asked to publish.\n"
             "Changesets group drafts so they publish together as one site build. "
@@ -599,8 +621,8 @@ def build_mcp_server(
         """
         Partially update a document (PATCH: only the fields you provide change).
 
-        For plain fields (title, tags, image, dates, refs). To add to a rich-text
-        body use insert_into_document instead: a body passed here REPLACES the
+        For plain fields (title, tags, image, dates, refs). To change a rich-text
+        body use edit_document_body instead: a body passed here REPLACES the
         whole field, so anything typed since you read it would be lost. If you
         must replace one, pass base_version. Does not publish. Not allowed for
         append_only block types.
@@ -621,8 +643,8 @@ def build_mcp_server(
             return _error(
                 detail.get("error", "Conflict"),
                 hint=(
-                    "Someone edited the document since you read it, or has it open. To add "
-                    "content use insert_into_document; to replace, get_document again and "
+                    "Someone edited the document since you read it, or has it open. To change "
+                    "the body use edit_document_body; to replace it, get_document again and "
                     "pass its draft_version as base_version."
                 ),
                 detail=detail,
@@ -647,30 +669,21 @@ def build_mcp_server(
         return r.json()
 
     @mcp.tool(annotations=UPDATE)
-    async def insert_into_document(
+    async def edit_document_body(
         doc_id: Annotated[str, Field(description="The document id (nanoid) from list_documents.")],
-        markdown: Annotated[
-            str,
+        edits: Annotated[
+            list[BodyEdit],
             Field(
+                min_length=1,
                 description=(
-                    "The content to add, as markdown: headings, paragraphs, **bold**, "
-                    "*italic*, `code`, [links](url), images, lists, quotes, code blocks."
+                    "Edits applied in order, all or nothing. Each is one of: "
+                    '{"find": "exact text", "replace": "markdown"} (empty replace deletes); '
+                    '{"section": "Heading", "replace": "markdown"} (the heading and its '
+                    'section); {"insert": "markdown", "after_heading": "Heading"}; '
+                    '{"insert": "markdown", "at": "end"|"start"}.'
                 ),
             ),
         ],
-        heading: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Add at the end of the section under this heading (its exact text, "
-                    "any case). Leave empty to use `at`."
-                ),
-            ),
-        ] = None,
-        at: Annotated[
-            Literal["end", "start"],
-            Field(description='Where to add when no heading is given: "end" (default) or "start".'),
-        ] = "end",
         field: Annotated[
             str | None,
             Field(
@@ -682,21 +695,26 @@ def build_mcp_server(
         ] = None,
     ) -> dict[str, Any]:
         """
-        Add content to a document's rich-text body without replacing it.
+        Change a document's rich-text body: add, rewrite or delete text and sections.
 
-        The way to write into a post body, even one someone has open in the
-        editor right now: the content is inserted into the live draft and their
-        editor shows it appear, with their own typing untouched. Use it to
-        scaffold a new section, append notes or add a paragraph after a heading.
+        The way to edit a post body, even one someone has open in the editor
+        right now: every edit is applied to the live draft, and their editor
+        shows it land with their own typing untouched. Anchor edits on text
+        you have just read with get_document: `find` must be copied exactly
+        and occur once (inside one paragraph or heading, or whole paragraphs
+        separated by a blank line), or name a heading. If an anchor is missing
+        or ambiguous, nothing is applied and the error says which edit; read
+        the draft again and retry. Replacement and inserted text is markdown.
         Writes the draft only; does not publish.
         """
         client = _get_client()
-        payload: dict[str, Any] = {"markdown": markdown, "at": at, "source": "mcp"}
-        if heading:
-            payload["heading"] = heading
+        payload: dict[str, Any] = {
+            "edits": [e.model_dump(exclude_none=True) for e in edits],
+            "source": "mcp",
+        }
         if field:
             payload["field"] = field
-        r = await client.post(f"/api/documents/{doc_id}/insert", json=payload)
+        r = await client.post(f"/api/documents/{doc_id}/edit", json=payload)
         if r.status_code == 404:
             return _error(
                 f"Document {doc_id!r} not found", hint="Use an `id` from list_documents."
@@ -704,10 +722,11 @@ def build_mcp_server(
         if r.status_code in (405, 422, 501):
             detail = r.json()
             return _error(
-                detail.get("error", "Insert refused"),
+                detail.get("error", "Edit refused"),
                 hint=(
-                    "A missing heading lists the headings that exist; a type with several "
-                    "rich-text fields needs `field`."
+                    "Nothing was applied. Read the draft again with get_document and copy "
+                    "`find` exactly; a missing heading lists the headings that exist; a type "
+                    "with several rich-text fields needs `field`."
                 ),
                 detail=detail,
             )

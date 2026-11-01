@@ -795,8 +795,8 @@ def make_document_routes(cms: CMS) -> list[Route]:
                     "base_version": base_version,
                     "draft_version": live_version,
                     "hint": (
-                        "Read the draft again, or add to a rich-text field with "
-                        "POST /api/documents/{id}/insert, which needs no version."
+                        "Read the draft again, or change a rich-text field with anchored "
+                        "edits (POST /api/documents/{id}/edit), which need no version."
                     ),
                 },
                 status_code=409,
@@ -811,7 +811,7 @@ def make_document_routes(cms: CMS) -> list[Route]:
                     "fields": open_fields,
                     "draft_version": live_version,
                     "hint": (
-                        "Use POST /api/documents/{id}/insert to add content, or pass the "
+                        "Use POST /api/documents/{id}/edit to change the text, or pass the "
                         "draft_version you read as base_version."
                     ),
                 },

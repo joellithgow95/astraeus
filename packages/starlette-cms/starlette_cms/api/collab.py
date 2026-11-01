@@ -5,7 +5,7 @@ Routes added by ``make_collab_routes(cms)``:
   - WS  /api/documents/{document_id}/collab
   - GET  /api/documents/{document_id}/history
   - GET  /api/documents/{document_id}/history/{version}
-  - POST /api/documents/{document_id}/insert
+  - POST /api/documents/{document_id}/edit
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from starlette_cms.api.changesets import link_document_to_changeset
 from starlette_cms.api.webhooks import fire_event
 from starlette_cms.auth import check_session_auth, require_auth
+from starlette_cms.body_edits import EditError
 from starlette_cms.collab import (
     BASELINE_STEP_TYPE,
     SERVER_CLIENT_PREFIX,
-    InsertError,
     collab_room,
 )
 from starlette_cms.tables import CMSDocument
@@ -658,23 +658,23 @@ def make_collab_routes(cms: CMS) -> list:
         )
 
     # ------------------------------------------------------------------
-    # Insert into a rich-text field, through its authority (ADR 027)
+    # Edit a rich-text field, through its authority (ADR 027)
     # ------------------------------------------------------------------
 
-    async def insert_content(request: Request) -> JSONResponse:
-        """Insert markdown (or ProseMirror nodes) into a document's rich-text field.
+    async def edit_content(request: Request) -> JSONResponse:
+        """Apply anchored edits to a document's rich-text field.
 
-        The way to add to a field someone may have open in the editor: the
-        insert goes through the field's collab authority as one step, so it
-        lands in the live document and open editors show it at once, with
-        their user's typing intact. Body::
+        The way to change a field someone may have open in the editor: each
+        edit is resolved against the live document and goes through the
+        field's collab authority as a step, so open editors show it at once,
+        with their user's typing intact. All or nothing. Body::
 
-            {"markdown": "## New section\\n\\nText", "heading": "Intro"}
+            {"edits": [{"find": "old text", "replace": "new **text**"},
+                       {"insert": "## New\\n\\nSection", "after_heading": "Intro"}]}
 
-        ``markdown`` or ``content`` (a list of ProseMirror block nodes);
-        ``field`` (default: the type's only rich-text field); ``heading`` to
-        insert at the end of that section, else ``at``: ``"end"`` (default) or
-        ``"start"``. Answers with the new ``draft_version``.
+        ``field`` defaults to the type's only rich-text field. See
+        :mod:`starlette_cms.body_edits` for the edits. Answers with the new
+        ``draft_version``; 422 names the edit that failed.
         """
         if (err := await require_auth(request, cms)) is not None:
             return err
@@ -686,9 +686,11 @@ def make_collab_routes(cms: CMS) -> list:
         if not isinstance(payload, dict):
             return JSONResponse({"error": "Body must be a JSON object"}, status_code=400)
 
-        rows = await CMSDocument.select(CMSDocument.doc_type, CMSDocument.slug).where(
-            CMSDocument.id == document_id
-        ).run()
+        rows = (
+            await CMSDocument.select(CMSDocument.doc_type, CMSDocument.slug)
+            .where(CMSDocument.id == document_id)
+            .run()
+        )
         if not rows:
             return JSONResponse({"error": "Document not found"}, status_code=404)
         doc_type = rows[0]["doc_type"]
@@ -702,7 +704,7 @@ def make_collab_routes(cms: CMS) -> list:
         if field is None:
             if len(fields) != 1:
                 return JSONResponse(
-                    {"error": "Name the rich-text field to insert into", "fields": fields},
+                    {"error": "Name the rich-text field to edit", "fields": fields},
                     status_code=422,
                 )
             field = fields[0]
@@ -712,37 +714,20 @@ def make_collab_routes(cms: CMS) -> list:
                 status_code=422,
             )
 
-        markdown = payload.get("markdown")
-        content = payload.get("content")
-        if (markdown is None) == (content is None):
-            return JSONResponse(
-                {"error": "Give exactly one of 'markdown' or 'content'"}, status_code=422
-            )
+        edits = payload.get("edits")
         try:
-            if markdown is not None:
-                from starlette_cms.markdown_pm import markdown_to_pm
-
-                nodes = markdown_to_pm(str(markdown))["content"]
-            elif isinstance(content, list):
-                nodes = content
-            else:
-                return JSONResponse(
-                    {"error": "'content' must be a list of block nodes"}, status_code=422
-                )
-            version = await cms.collab_manager.insert_content(
+            version = await cms.collab_manager.edit_content(
                 document_id,
                 field,
-                nodes,
-                heading=payload.get("heading"),
-                at=payload.get("at", "end"),
-                source=str(payload.get("source") or "insert")[:40],
+                edits if isinstance(edits, list) else [],
+                source=str(payload.get("source") or "edit")[:40],
             )
-        except InsertError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=422)
         except ImportError:
             return JSONResponse(
-                {"error": "Inserting needs the collab-verify extra on the CMS"}, status_code=501
+                {"error": "Editing needs the collab-verify extra on the CMS"}, status_code=501
             )
+        except EditError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
         except KeyError:
             return JSONResponse({"error": "Document not found"}, status_code=404)
 
@@ -758,24 +743,24 @@ def make_collab_routes(cms: CMS) -> list:
         )
         if created is not None:
             headers["X-Changeset-Id"], headers["X-Changeset-Title"] = created
+        open_editors = cms.collab_manager._connections.get(collab_room(document_id, field), set())
         return JSONResponse(
             {
                 "document_id": document_id,
                 "field": field,
+                "edits": len(edits) if isinstance(edits, list) else 0,
                 "draft_version": version,
-                "open_editors": len(cms.collab_manager._connections.get(
-                    collab_room(document_id, field), set()
-                )),
+                "open_editors": len(open_editors),
             },
             headers=headers or None,
         )
 
     return [
         Route(
-            "/api/documents/{document_id}/insert",
-            endpoint=insert_content,
+            "/api/documents/{document_id}/edit",
+            endpoint=edit_content,
             methods=["POST"],
-            name="collab_insert",
+            name="collab_edit",
         ),
         WebSocketRoute("/api/events", endpoint=events_ws),
         WebSocketRoute("/api/documents/{document_id}/collab", endpoint=collab_ws),

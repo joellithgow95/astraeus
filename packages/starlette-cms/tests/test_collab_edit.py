@@ -1,11 +1,12 @@
 """
-Adding to a rich-text field through its authority (ADR 027).
+Editing a rich-text field through its authority (ADR 027).
 
 The use case: a person is typing in the editor and asks Claude, over MCP, to
-scaffold a new section of the same post. The section must appear in their
-editor as they watch, and nothing they type before, during or after must be
-lost. A whole-body PATCH cannot do that (it is built against what the writer
-last read), so the insert goes through the authority as one step.
+scaffold a new section of the same post, or fix a sentence in it. The change
+must appear in their editor as they watch, and nothing they type before,
+during or after must be lost. A whole-body PATCH cannot do that (it is built
+against what the writer last read), so anchored edits go through the authority
+as steps built against the live document.
 
 These run against a real in-process CMS with verification on, as prod runs it;
 the MCP tools reach it through a transport that forwards to the same app.
@@ -28,7 +29,7 @@ pytest.importorskip("prosemirror", reason="needs the collab-verify extra")
 pytest.importorskip("mistune", reason="needs the collab-verify extra")
 
 from starlette_cms import CMS, RichTextField, TextField  # noqa: E402
-from starlette_cms.mcp.server import build_mcp_server  # noqa: E402
+from starlette_cms.mcp.server import BodyEdit, build_mcp_server  # noqa: E402
 
 
 def _para(text: str) -> dict:
@@ -144,47 +145,57 @@ def _tool(client: TestClient, name: str, **kwargs: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def test_claude_scaffolds_a_section_while_the_person_keeps_typing(server):
+def _type(ws, pos: int, text: str, version: int) -> int:
+    ws.send_json(
+        {"type": "steps", "steps": [_insert(pos, text)], "clientID": "joel", "version": version}
+    )
+    msg = ws.receive_json()
+    assert msg["type"] == "steps", msg
+    return msg["version"]
+
+
+def test_claude_edits_the_post_while_the_person_keeps_typing(server):
     client, _, doc_id = server
 
     with client.websocket_connect(_url(doc_id)) as ws:
         assert ws.receive_json()["type"] == "init"
         # The person types at the end of "Intro." (position 7).
-        ws.send_json(
-            {"type": "steps", "steps": [_insert(7, " More")], "clientID": "joel", "version": 0}
-        )
-        assert ws.receive_json()["version"] == 1
+        assert _type(ws, 7, " More", 0) == 1
 
         result = _tool(
             client,
-            "insert_into_document",
+            "edit_document_body",
             doc_id=doc_id,
-            markdown="### Troubleshooting\n\nIf it **fails**, see [the docs](https://x.test).",
-            heading="Setup",
+            edits=[
+                BodyEdit(
+                    insert="### Troubleshooting\n\nIf it **fails**, see [the docs](https://x.test).",
+                    after_heading="Setup",
+                ),
+                BodyEdit(find="Install it.", replace="Install it with `uv add`."),
+            ],
         )
-        assert result["draft_version"] == 2
+        assert result["draft_version"] == 3
         assert result["open_editors"] == 1
 
-        # The editor is sent the insert as an ordinary step and shows it.
+        # The editor is sent both edits as ordinary steps and shows them.
         msg = ws.receive_json()
         assert msg["type"] == "steps"
         assert msg["origin"] == "mcp"
-        assert msg["clientIDs"] == ["server:mcp"]
-        assert msg["version"] == 2
+        assert msg["clientIDs"] == ["server:mcp", "server:mcp"]
+        assert msg["version"] == 3
 
-        # A keystroke made before the editor saw the insert is refused, not
-        # applied blindly; rebased onto version 2 it lands.
+        # A keystroke made before the editor saw the edits is refused, not
+        # applied blindly; rebased onto version 3 it lands.
         stale = {"type": "steps", "steps": [_insert(12, "!")], "clientID": "joel", "version": 1}
         ws.send_json(stale)
-        assert ws.receive_json() == {"type": "reject", "version": 2, "reason": "version"}
-        ws.send_json({**stale, "version": 2})
-        assert ws.receive_json()["version"] == 3
+        assert ws.receive_json() == {"type": "reject", "version": 3, "reason": "version"}
+        assert _type(ws, 12, "!", 3) == 4
 
     body = _draft(client, doc_id)["body"]["body"]
     assert _blocks(body) == [
         "Intro. More!",
         "Setup",
-        "Install it.",
+        "Install it with uv add.",
         "Troubleshooting",
         "If it fails, see the docs.",
         "Usage",
@@ -193,10 +204,34 @@ def test_claude_scaffolds_a_section_while_the_person_keeps_typing(server):
     assert link["marks"] == [{"type": "link", "attrs": {"href": "https://x.test", "title": None}}]
 
 
+def test_an_edit_whose_text_the_person_just_changed_is_refused_whole(server):
+    """The anchor is looked up in the live document, never a stale copy."""
+    client, _, doc_id = server
+
+    with client.websocket_connect(_url(doc_id)) as ws:
+        ws.receive_json()
+        _type(ws, 26, " now", 0)  # "Install it." -> "Install it now." in the editor
+
+        result = _tool(
+            client,
+            "edit_document_body",
+            doc_id=doc_id,
+            edits=[
+                BodyEdit(insert="Added.", at="end"),
+                BodyEdit(find="Install it.", replace="Run the installer."),
+            ],
+        )
+        assert "error" in result
+        assert result["detail"]["error"].startswith("edit 1:")
+
+    # All or nothing: the insert in the same batch did not land either.
+    assert _blocks(_draft(client, doc_id)["body"]["body"])[-1] == "Usage"
+
+
 def test_get_document_reads_the_draft_and_its_version(server):
     client, _, doc_id = server
     client.post(f"/api/documents/{doc_id}/publish")
-    client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "Draft only."})
+    client.post(f"/api/documents/{doc_id}/edit", json={"edits": [{"insert": "Draft only."}]})
 
     doc = _tool(client, "get_document", doc_id=doc_id)
     assert _blocks(doc["body"]["body"])[-1] == "Draft only."
@@ -206,19 +241,13 @@ def test_get_document_reads_the_draft_and_its_version(server):
     assert "Draft only." not in _blocks(live["body"]["body"])
 
 
-def test_update_document_refuses_a_stale_body_and_points_at_insert(server):
+def test_update_document_refuses_a_stale_body_and_points_at_edit(server):
     client, _, doc_id = server
-    client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "Newer."})
+    client.post(f"/api/documents/{doc_id}/edit", json={"edits": [{"insert": "Newer."}]})
 
-    result = _tool(
-        client,
-        "update_document",
-        doc_id=doc_id,
-        body={"body": START},
-        base_version=0,
-    )
+    result = _tool(client, "update_document", doc_id=doc_id, body={"body": START}, base_version=0)
     assert "error" in result
-    assert "insert_into_document" in result["hint"]
+    assert "edit_document_body" in result["hint"]
     assert _blocks(_draft(client, doc_id)["body"]["body"])[-1] == "Newer."
 
     # Plain fields need no version.
@@ -227,18 +256,23 @@ def test_update_document_refuses_a_stale_body_and_points_at_insert(server):
 
 
 # ---------------------------------------------------------------------------
-# The insert endpoint
+# The edit endpoint
 # ---------------------------------------------------------------------------
 
 
-def test_insert_with_no_editor_open_writes_the_draft_and_lets_the_session_go(server):
+def _edit(client: TestClient, doc_id: str, *edits: dict, **extra: Any):
+    return client.post(f"/api/documents/{doc_id}/edit", json={"edits": list(edits), **extra})
+
+
+def test_editing_with_no_editor_open_writes_the_draft_and_lets_the_session_go(server):
     client, cms, doc_id = server
 
-    resp = client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "Last."})
+    resp = _edit(client, doc_id, {"insert": "Last."})
     assert resp.status_code == 200, resp.text
     assert resp.json() == {
         "document_id": doc_id,
         "field": "body",
+        "edits": 1,
         "draft_version": 1,
         "open_editors": 0,
     }
@@ -248,61 +282,22 @@ def test_insert_with_no_editor_open_writes_the_draft_and_lets_the_session_go(ser
     assert stored["draft_version"] == 1
     assert _blocks(stored["body"]["body"])[-1] == "Last."
 
-    # The next session starts where the insert left the document.
+    # The next session starts where the edit left the document.
     with client.websocket_connect(_url(doc_id)) as ws:
         init = ws.receive_json()
         assert init["version"] == 1
         assert _blocks(init["doc"])[-1] == "Last."
 
 
-def test_insert_at_start_and_at_the_last_section(server):
+def test_a_refused_edit_names_the_problem_and_changes_nothing(server):
     client, _, doc_id = server
-    client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "First.", "at": "start"})
-    client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "Run it.", "heading": "usage"})
-
-    assert _blocks(_draft(client, doc_id)["body"]["body"]) == [
-        "First.",
-        "Intro.",
-        "Setup",
-        "Install it.",
-        "Usage",
-        "Run it.",
-    ]
-
-
-def test_insert_into_an_empty_body_replaces_the_blank_paragraph(server):
-    client, _, _ = server
-    resp = client.post(
-        "/api/documents",
-        json={
-            "doc_type": "post",
-            "body": {"title": "Empty", "body": {"type": "doc", "content": [{"type": "paragraph"}]}},
-        },
-    )
-    doc_id = resp.json()["id"]
-
-    client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "# Title\n\nText."})
-    assert _blocks(_draft(client, doc_id)["body"]["body"]) == ["Title", "Text."]
-
-
-def test_insert_refuses_a_missing_heading_and_lists_the_real_ones(server):
-    client, _, doc_id = server
-    resp = client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "x", "heading": "Nope"})
+    resp = _edit(client, doc_id, {"insert": "x", "after_heading": "Nope"})
     assert resp.status_code == 422
     assert "['Setup', 'Usage']" in resp.json()["error"]
     assert _draft(client, doc_id)["draft_version"] == 0
 
 
-def test_insert_refuses_content_that_breaks_the_schema(server):
-    client, _, doc_id = server
-    resp = client.post(
-        f"/api/documents/{doc_id}/insert",
-        json={"content": [{"type": "text", "text": "a bare text node is not a block"}]},
-    )
-    assert resp.status_code == 422, resp.text
-
-
-def test_insert_needs_a_field_when_the_type_has_two(server):
+def test_editing_needs_a_field_when_the_type_has_two(server):
     client, _, _ = server
     empty = {"type": "doc", "content": [{"type": "paragraph"}]}
     doc_id = client.post(
@@ -310,16 +305,16 @@ def test_insert_needs_a_field_when_the_type_has_two(server):
         json={"doc_type": "two_bodies", "body": {"title": "T", "intro": empty, "body": empty}},
     ).json()["id"]
 
-    resp = client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "x"})
+    resp = _edit(client, doc_id, {"insert": "x"})
     assert resp.status_code == 422
     assert resp.json()["fields"] == ["intro", "body"]
 
-    resp = client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "x", "field": "intro"})
+    resp = _edit(client, doc_id, {"insert": "x"}, field="intro")
     assert resp.status_code == 200, resp.text
     assert _blocks(_draft(client, doc_id)["body"]["intro"]) == ["x"]
 
 
-def test_insert_needs_write_auth():
+def test_editing_needs_write_auth():
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     cms = CMS(database_url=f"sqlite:///{tmp.name}", auth="apikey", api_key="k", read_auth=False)
@@ -336,7 +331,6 @@ def test_insert_needs_write_auth():
                 json={"doc_type": "post", "body": {"body": START}},
                 headers={"Authorization": "Bearer k"},
             ).json()["id"]
-            resp = client.post(f"/api/documents/{doc_id}/insert", json={"markdown": "x"})
-            assert resp.status_code == 401
+            assert _edit(client, doc_id, {"insert": "x"}).status_code == 401
     finally:
         os.unlink(tmp.name)
