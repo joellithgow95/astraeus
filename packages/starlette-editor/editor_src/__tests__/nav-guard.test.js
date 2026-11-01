@@ -57,8 +57,17 @@ beforeEach(() => {
   state.activeType = 'post'
   state.activeDocId = 'doc-1'
   state.formData = { title: 'unsaved work' }
+  state.savedFields = { title: 'unsaved work' }
+  state.fieldSaveError = null
   state.isDirty = false
 })
+
+/** The edits are unsaved and the server will not take them (offline, refused). */
+function unsavable() {
+  state.isDirty = true
+  state.savedFields = { title: 'saved' }
+  mocks.patchDocument.mockRejectedValue(new Error('offline'))
+}
 
 describe('selectType', () => {
   it('does not prompt when the document is clean', async () => {
@@ -69,7 +78,7 @@ describe('selectType', () => {
   })
 
   it('keeps the edits when the user cancels', async () => {
-    state.isDirty = true
+    unsavable()
     mocks.showConfirm.mockResolvedValue(false)
 
     await selectType('page')
@@ -82,7 +91,7 @@ describe('selectType', () => {
   })
 
   it('discards the edits when the user confirms', async () => {
-    state.isDirty = true
+    unsavable()
     mocks.showConfirm.mockResolvedValue(true)
 
     await selectType('page')
@@ -102,7 +111,7 @@ describe('selectDoc', () => {
   })
 
   it('keeps the edits when the user cancels', async () => {
-    state.isDirty = true
+    unsavable()
     mocks.showConfirm.mockResolvedValue(false)
 
     await selectDoc('doc-2')
@@ -115,7 +124,7 @@ describe('selectDoc', () => {
   })
 
   it('discards the edits when the user confirms', async () => {
-    state.isDirty = true
+    unsavable()
     mocks.showConfirm.mockResolvedValue(true)
 
     await selectDoc('doc-2')
@@ -123,6 +132,19 @@ describe('selectDoc', () => {
     expect(state.activeDocId).toBe('doc-2')
     expect(state.formData).toEqual({ title: 'saved', __slug: 'saved' })
     expect(state.isDirty).toBe(false)
+  })
+
+  it('saves unsaved fields instead of asking, when the server takes them', async () => {
+    state.isDirty = true
+    state.savedFields = { title: 'saved' }
+
+    await selectDoc('doc-2')
+
+    expect(mocks.showConfirm).not.toHaveBeenCalled()
+    const [id, patch] = mocks.patchDocument.mock.calls[0]
+    expect(id).toBe('doc-1')
+    expect(patch.body).toEqual({ title: 'unsaved work' })
+    expect(state.activeDocId).toBe('doc-2')
   })
 
   it('does not prompt when reselecting the active document', async () => {
@@ -139,7 +161,7 @@ describe('draft buffer integration', () => {
   it('drops the buffer when the user confirms a discard', async () => {
     const key = draftKey('doc-1', 'post')
     writeDraft(key, { title: 'unsaved work' })
-    state.isDirty = true
+    unsavable()
     mocks.showConfirm.mockResolvedValue(true)
 
     await selectDoc('doc-2')
@@ -150,7 +172,7 @@ describe('draft buffer integration', () => {
   it('keeps the buffer when the user cancels a discard', async () => {
     const key = draftKey('doc-1', 'post')
     writeDraft(key, { title: 'unsaved work' })
-    state.isDirty = true
+    unsavable()
     mocks.showConfirm.mockResolvedValue(false)
 
     await selectDoc('doc-2')

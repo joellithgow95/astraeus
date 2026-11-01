@@ -73,7 +73,10 @@ describe('saveDocument with a live collab field', () => {
   })
 
   it('still sends a rich-text field that has no collab connection', async () => {
+    // Without collab, the editor keeps formData current as you type.
     state.collabConnections = {}
+    state.savedFields = { title: 'T2', body_markdown: LOADED, __slug: 's' }
+    state.formData = { ...state.formData, body_markdown: TYPED }
 
     await saveDocument()
 

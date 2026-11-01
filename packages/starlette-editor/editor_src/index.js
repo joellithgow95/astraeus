@@ -45,6 +45,7 @@ import {
   hasUnsavedBodyEdits,
 } from './standard/actions.js'
 import { el } from './utils.js'
+import { startFieldSync, unsavedFields } from './field-sync.js'
 
 /**
  * Mirror the active changeset into shell state for the header.
@@ -144,7 +145,10 @@ setRenderFn(render);
 // Warn before leaving the page with unsaved edits. Browsers ignore any custom
 // message and show their own; preventDefault() is what triggers the prompt.
 window.addEventListener('beforeunload', e => {
-  if (!state.isDirty && !hasUnsavedBodyEdits()) return;
+  const fieldsPending = state.activeDocId
+    ? Object.keys(unsavedFields()).length > 0
+    : state.isDirty;
+  if (!fieldsPending && !hasUnsavedBodyEdits()) return;
 
   e.preventDefault();
   e.returnValue = '';
@@ -236,7 +240,8 @@ function buildShell() {
       }, '☰'),
       el('div', { class: 'editor-header__title-wrap' },
         el('h1', { class: 'editor-header__title', id: 'header-title' }, 'CMS Editor'),
-        el('span', { class: 'editor-header__dirty-dot', id: 'dirty-dot', title: 'Unsaved changes' })
+        el('span', { class: 'editor-header__dirty-dot', id: 'dirty-dot', title: 'Unsaved changes' }),
+        el('span', { class: 'save-status', id: 'save-status', style: 'display:none', 'aria-live': 'polite' })
       ),
       el('div', { class: 'editor-header__actions' },
         el('div', { class: 'publish-toggle', id: 'publish-wrap', style: 'display:none' },
@@ -290,6 +295,7 @@ function buildShell() {
  */
 async function boot() {
   buildShell();
+  startFieldSync();
   render(); // Show initial empty state
 
   setState({ isLoadingSchema: true }, false);

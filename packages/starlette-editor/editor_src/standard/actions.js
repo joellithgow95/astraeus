@@ -19,6 +19,7 @@ import { showToast } from '../components/toast.js'
 import { destroyPmInstances } from '../prosemirror/mount.js'
 import { pmDocToMarkdown } from '../prosemirror/markdown.js'
 import { docTitle } from '../utils.js'
+import { flushFields, markSaved, unsavedFields } from '../field-sync.js'
 
 
 /**
@@ -40,6 +41,9 @@ export function hasUnsavedBodyEdits() {
  * @returns {Promise<boolean>} true when it is safe to proceed
  */
 async function confirmDiscardIfDirty() {
+  // An existing document's plain fields save themselves: send what is left
+  // before leaving, and only ask if that fails.
+  if (state.activeDocId && (await flushFields())) state.isDirty = false;
   const bodyPending = hasUnsavedBodyEdits();
   if (!state.isDirty && !bodyPending) return true;
 
@@ -141,9 +145,11 @@ export async function selectDoc(docId) {
 
   try {
     const doc = await fetchDocument(docId);
+    const formData = { ...(doc.body || {}), __slug: doc.slug || '' };
+    markSaved(formData);
     setState({
       activeDoc: doc,
-      formData: { ...(doc.body || {}), __slug: doc.slug || '' },
+      formData,
       isLoadingDoc: false,
       isDirty: false,
     });
@@ -197,6 +203,14 @@ export function onFieldChange(name, value) {
 export async function saveDocument() {
   if (!state.activeType) return;
   if (state.isSaving) return;
+
+  // An existing document saves itself field by field; Save (or Cmd+S) just
+  // sends whatever is still waiting. Rich text saves as steps.
+  if (state.activeDocId) {
+    const ok = await flushFields();
+    if (!ok) showToast('error', 'Not saved', state.fieldSaveError || 'The server refused the change');
+    return;
+  }
 
   // Capture before the save — a new document is buffered under its type and
   // gains an id here, so the post-save key would not match what was written.
@@ -260,12 +274,14 @@ export async function saveDocument() {
     }
 
     const result = await fetchDocuments(state.activeType);
+    const formData = { ...(savedDoc.body || {}), __slug: savedDoc.slug || '' };
+    markSaved(formData);
 
     setState({
       isSaving: false,
       activeDocId: savedDoc.id,
       activeDoc: savedDoc,
-      formData: { ...(savedDoc.body || {}), __slug: savedDoc.slug || '' },
+      formData,
       isDirty: false,
       documents: result.documents || [],
       docsTotal: result.total || 0,
@@ -281,11 +297,27 @@ export async function saveDocument() {
 }
 
 /**
+ * The form for a document the server just returned, keeping any field this
+ * tab has changed and not yet saved.
+ *
+ * @param {object} doc
+ * @returns {object}
+ */
+function reloadedForm(doc) {
+  const formData = { ...(doc.body || {}), __slug: doc.slug || '' };
+  const unsaved = unsavedFields();
+  markSaved(formData);
+  return { ...formData, ...unsaved };
+}
+
+/**
  * Toggle publish state of the active document.
  */
 export async function togglePublish() {
   const doc = state.activeDoc;
   if (!doc) return;
+
+  await flushFields();
 
   const intended = doc.draft_published ?? doc.published;
   const newIntended = !intended;
@@ -306,7 +338,7 @@ export async function togglePublish() {
     const result = await fetchDocuments(state.activeType);
     setState({
       activeDoc: updated,
-      formData: { ...(updated.body || {}), __slug: updated.slug || '' },
+      formData: reloadedForm(updated),
       documents: result.documents || [],
       docsTotal: result.total || 0,
     });
@@ -329,6 +361,8 @@ export async function deleteActiveDoc() {
   const doc = state.activeDoc;
   if (!doc) return;
 
+  await flushFields();
+
   const willDelete = !doc.draft_deleted;
 
   try {
@@ -346,7 +380,7 @@ export async function deleteActiveDoc() {
     const result = await fetchDocuments(state.activeType);
     setState({
       activeDoc: updated,
-      formData: { ...(updated.body || {}), __slug: updated.slug || '' },
+      formData: reloadedForm(updated),
       documents: result.documents || [],
       docsTotal: result.total || 0,
     });

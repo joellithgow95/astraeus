@@ -335,6 +335,21 @@ html, body {
   display: block;
 }
 
+/* Live fields (field-sync.js): an existing document saves itself. */
+.save-status {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40ch;
+}
+
+.save-status--error {
+  color: var(--red);
+  font-weight: 600;
+}
+
 .editor-header__actions {
   display: flex;
   align-items: center;
