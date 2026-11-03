@@ -7,6 +7,7 @@ that shows all registered apps as a grid of clickable cards.
 
 from __future__ import annotations
 
+import html
 import importlib.metadata
 from typing import TYPE_CHECKING
 
@@ -27,22 +28,6 @@ _KNOWN_PACKAGES = [
     "astraeus-portal",
     "astraeus-otel",
 ]
-
-
-def _js_string(value: str | None) -> str:
-    """Safely encode a Python string value for inline JavaScript."""
-    if value is None:
-        return "null"
-    escaped = (
-        value.replace("\\", "\\\\\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-    )
-    return f'"{escaped}"'
 
 
 def _gather_package_info() -> list[dict[str, str]]:
@@ -69,7 +54,7 @@ def _build_shell_html(portal: Portal) -> str:
     # Card HTML rows
     cards_html = ""
     for i, app in enumerate(apps):
-        icon_html = f'<span class="card-icon">{_js_string(app.icon)}</span>' if app.icon else ""
+        icon_html = f'<span class="card-icon">{html.escape(app.icon)}</span>' if app.icon else ""
         tags_html = ""
         if app.tags:
             tags_html = (
@@ -144,6 +129,7 @@ def _build_shell_html(portal: Portal) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{portal.title}</title>
   <link rel="stylesheet" href="{portal.cms_base}/static/tokens.css" />
+  <script src="{portal.cms_base}/static/theme.js"></script>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{

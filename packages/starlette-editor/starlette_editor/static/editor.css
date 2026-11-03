@@ -1,6 +1,6 @@
 /* ============================================================
    Astraeus CMS Editor — editor.css
-   Dark, linear.app-inspired design system
+   Light and dark from the shared tokens (starlette-cms tokens.css)
    ============================================================ */
 
 /* ---------- Reset & Custom Properties ---------- */
@@ -65,25 +65,89 @@ html, body {
   color: var(--text-secondary);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Theme toggle (and, at width, the collapse button) sit right of the name. */
+.sidebar-types__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* ---------- Icons and icon buttons ---------- */
+.icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
 }
 
 .sidebar-types__list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-2) 0;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
+/* Types are buttons (keyboard reachable); this undoes the button chrome. */
 .sidebar-types__item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--font-size-sm);
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 6px var(--space-2);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  text-align: left;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 0;
   transition: background var(--transition-fast), color var(--transition-fast);
   user-select: none;
+}
+
+.sidebar-types__item-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sidebar-types__item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
 }
 
 .sidebar-types__item:hover {
@@ -94,12 +158,16 @@ html, body {
 .sidebar-types__item.is-active {
   background: var(--bg-selected);
   color: var(--text-primary);
+  font-weight: 500;
 }
 
 .sidebar-types__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
-  opacity: 0.5;
+  opacity: 0.75;
   flex-shrink: 0;
 }
 
@@ -116,8 +184,9 @@ html, body {
 .sidebar-types__group-label {
   display: flex;
   align-items: center;
-  padding: var(--space-2) var(--space-4);
-  font-size: 10px;
+  margin-top: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -158,7 +227,8 @@ html, body {
 
 .sidebar-docs__header {
   height: var(--header-height);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  gap: var(--space-2);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -167,41 +237,22 @@ html, body {
 }
 
 .sidebar-docs__title {
-  font-size: var(--font-size-sm);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--text-primary);
-  truncate: ellipsis;
+  text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
 }
 
-.sidebar-docs__new-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--target-min);
-  height: var(--target-min);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.sidebar-docs__new-btn:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
-}
+/* An .icon-btn; the new-document button needs nothing more. */
 
 .sidebar-docs__list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-1) 0;
+  padding: var(--space-2) 0;
 }
 
 .sidebar-docs__empty {
@@ -232,7 +283,7 @@ html, body {
 }
 
 .sidebar-docs__item-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -513,6 +564,8 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-8) var(--space-6);
+  /* Room for the floating toolbar pill, which otherwise sits on the last field. */
+  padding-bottom: calc(var(--space-8) + 72px);
 }
 
 /* ---------- Document Form ---------- */
@@ -691,7 +744,7 @@ html, body {
 }
 
 .pm-editor {
-  background: #111111;
+  background: var(--bg-input);
   padding: var(--space-4) var(--space-5);
   min-height: 220px;
   outline: none;
@@ -749,7 +802,7 @@ html, body {
   background: var(--bg-elevated);
   padding: 1px 5px;
   border-radius: 3px;
-  color: #e06c75;
+  color: var(--text-primary);
 }
 
 .pm-editor .ProseMirror pre {
@@ -782,7 +835,7 @@ html, body {
 
 /* ProseMirror selection */
 .pm-editor .ProseMirror ::selection {
-  background: rgba(76, 110, 245, 0.3);
+  background: var(--selection);
 }
 
 /* ---------- Empty / Loading States ---------- */
@@ -849,7 +902,7 @@ html, body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   min-width: 240px;
   max-width: 360px;
   pointer-events: auto;
@@ -902,7 +955,7 @@ html, body {
 .overlay-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   z-index: 8000;
   display: flex;
   align-items: center;
@@ -922,7 +975,7 @@ html, body {
   padding: var(--space-6);
   max-width: 360px;
   width: calc(100% - var(--space-8));
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-lg);
 }
 
 .overlay-dialog__title {
@@ -960,7 +1013,7 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--text-muted);
 }
 
 /* ---------- Utility ---------- */
@@ -1079,7 +1132,7 @@ html, body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-md);
   max-height: 260px;
   overflow-y: auto;
 }
@@ -1436,7 +1489,7 @@ html, body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   z-index: 500;
   overflow: hidden;
 }
@@ -1699,7 +1752,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 .picker-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -1714,7 +1767,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-lg);
 }
 
 .picker-modal__iframe {
@@ -1748,7 +1801,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   backdrop-filter: blur(2px);
 }
 
@@ -1759,7 +1812,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
 }
 
 .changeset-drawer__header {
@@ -1961,7 +2014,8 @@ details.doc-meta[open] .doc-meta__summary::before {
 /* ---------- Document filter ---------- */
 .sidebar-docs__search {
   width: calc(100% - var(--space-3) * 2);
-  margin: var(--space-2) var(--space-3) 0;
+  margin: var(--space-3) var(--space-3) 0;
+  flex-shrink: 0;
   min-height: var(--target-min);
   background: var(--bg-input);
   border: 1px solid var(--border-default);
@@ -1969,7 +2023,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-input);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-3);
   outline: none;
   -webkit-appearance: none;
   appearance: none;
@@ -1977,6 +2031,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 
 .sidebar-docs__search:focus {
   border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .sidebar-docs__search::placeholder {
@@ -1986,18 +2041,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 /* ---------- Drawer toggle (small screens only) ---------- */
 .editor-header__drawer-toggle {
   display: none;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--target-min);
-  min-height: var(--target-min);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--font-size-md);
-  line-height: 1;
-  flex-shrink: 0;
+  margin-left: calc(var(--space-2) * -1);
 }
 
 .sidebar-types__header {
@@ -2015,7 +2059,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   z-index: 39;
 }
 
@@ -2025,7 +2069,7 @@ details.doc-meta[open] .doc-meta__summary::before {
     width: 48px;
   }
   .sidebar-types__logo,
-  .sidebar-types__item span {
+  .sidebar-types__item-label {
     display: none;
   }
   /* Group labels arrived after this breakpoint was written and nothing hid
@@ -2086,7 +2130,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 
   .sidebar-docs {
     z-index: 42;
-    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-md);
   }
 
   /* Types while no type is chosen; documents once one is. */
@@ -2104,7 +2148,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   .sidebar-types__logo {
     display: block;
   }
-  .sidebar-types__item span {
+  .sidebar-types__item-label {
     display: inline;
   }
   .sidebar-types__item {
@@ -2169,7 +2213,8 @@ details.doc-meta[open] .doc-meta__summary::before {
     display: block;
     border-top: 1px solid var(--border-subtle);
     margin-top: auto;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding: var(--space-2);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
   }
 
   /* Back to the type list. Hidden at width, where both are columns. */

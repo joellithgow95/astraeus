@@ -46,6 +46,8 @@ import {
   hasUnsavedBodyEdits,
 } from './standard/actions.js'
 import { el } from './utils.js'
+import { icon } from './icons.js'
+import { buildThemeToggle } from './theme.js'
 import { startFieldSync, unsavedFields } from './field-sync.js'
 
 /**
@@ -165,15 +167,16 @@ function buildShell() {
   const typeSidebar = el('aside', { class: 'sidebar-types' },
     el('div', { class: 'sidebar-types__header' },
       el('span', { class: 'sidebar-types__logo' }, 'Astraeus'),
+      el('div', { class: 'sidebar-types__tools' }, buildThemeToggle()),
       // At full width the panel covers the backdrop and the header toggle, so
       // without this there is no way out but the device back gesture.
       el('button', {
-        class: 'sidebar-types__close',
+        class: 'sidebar-types__close icon-btn',
         type: 'button',
         title: 'Close',
         'aria-label': 'Close navigation',
         onclick: () => closeDocDrawer(),
-      }, '\u00d7')
+      }, icon('x', { size: 20 }))
     ),
     el('nav', { class: 'sidebar-types__list', id: 'type-list' }),
     // Changesets and Chat are destinations, not document actions, so on small
@@ -187,7 +190,7 @@ function buildShell() {
           closeDocDrawer();
           state.changesetPanel?.toggle();
         },
-      }, el('span', { class: 'sidebar-types__item-icon' }, '\u{1F4CB}'), el('span', {}, 'Changesets')),
+      }, el('span', { class: 'sidebar-types__item-icon' }, icon('layers')), el('span', { class: 'sidebar-types__item-label' }, 'Changesets')),
       el('button', {
         class: 'sidebar-types__item',
         type: 'button',
@@ -195,27 +198,29 @@ function buildShell() {
           closeDocDrawer();
           state.chatPanel?.toggle();
         },
-      }, el('span', { class: 'sidebar-types__item-icon' }, '\u{1F4AC}'), el('span', {}, 'Chat'))
+      }, el('span', { class: 'sidebar-types__item-icon' }, icon('chat')), el('span', { class: 'sidebar-types__item-label' }, 'Chat'))
     )
   );
 
   const docSidebar = el('aside', { class: 'sidebar-docs' },
     el('div', { class: 'sidebar-docs__header' },
       el('button', {
-        class: 'sidebar-docs__back',
+        class: 'sidebar-docs__back icon-btn',
         type: 'button',
         title: 'Back to types',
         'aria-label': 'Back to types',
         onclick: showTypeRoute,
-      }, '\u2039'),
-      el('span', { class: 'sidebar-docs__title', id: 'doc-list-title' }, '—'),
+      }, icon('chevron-left', { size: 20 })),
+      el('span', { class: 'sidebar-docs__title', id: 'doc-list-title' }, 'Documents'),
       el('button', {
-        class: 'sidebar-docs__new-btn',
+        class: 'sidebar-docs__new-btn icon-btn',
         id: 'doc-new-btn',
+        type: 'button',
         title: 'New document',
+        'aria-label': 'New document',
         style: 'display:none',
         onclick: openNewDocFromList,
-      }, '+')
+      }, icon('plus'))
     ),
     el('input', {
       class: 'sidebar-docs__search',
@@ -226,19 +231,19 @@ function buildShell() {
       oninput: e => setState({ docFilter: e.target.value }),
     }),
     el('div', { class: 'sidebar-docs__list', id: 'doc-list' },
-      el('div', { class: 'sidebar-docs__empty' }, 'Select a type')
+      el('div', { class: 'sidebar-docs__empty' }, 'Choose a type to see its documents')
     )
   );
 
   const main = el('main', { class: 'main-content' },
     el('header', { class: 'editor-header' },
       el('button', {
-        class: 'editor-header__drawer-toggle',
+        class: 'editor-header__drawer-toggle icon-btn',
         type: 'button',
         title: 'Documents',
         'aria-label': 'Show document list',
         onclick: () => toggleDocDrawer(state),
-      }, '☰'),
+      }, icon('menu', { size: 20 })),
       el('div', { class: 'editor-header__title-wrap' },
         el('h1', { class: 'editor-header__title', id: 'header-title' }, 'CMS Editor'),
         el('span', { class: 'editor-header__dirty-dot', id: 'dirty-dot', title: 'Unsaved changes' }),
