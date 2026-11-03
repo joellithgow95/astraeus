@@ -32,6 +32,7 @@ def _login_html(error: bool = False, next_url: str = "", mount: str = "") -> str
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CMS Login</title>
   <link rel="stylesheet" href="{mount}/static/tokens.css">
+  <script src="{mount}/static/theme.js"></script>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{

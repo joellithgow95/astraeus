@@ -1,6 +1,6 @@
 /* ============================================================
    Astraeus CMS Editor — editor.css
-   Dark, linear.app-inspired design system
+   Light and dark from the shared tokens (starlette-cms tokens.css)
    ============================================================ */
 
 /* ---------- Reset & Custom Properties ---------- */
@@ -65,25 +65,93 @@ html, body {
   color: var(--text-secondary);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Theme toggle (and, at width, the collapse button) sit right of the name. */
+.sidebar-types__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* ---------- Icons and icon buttons ---------- */
+.icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.icon-btn[hidden] {
+  display: none;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
 }
 
 .sidebar-types__list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-2) 0;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
+/* Types are buttons (keyboard reachable); this undoes the button chrome. */
 .sidebar-types__item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--font-size-sm);
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--target-min);
+  padding: 6px var(--space-2);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  text-align: left;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 0;
   transition: background var(--transition-fast), color var(--transition-fast);
   user-select: none;
+}
+
+.sidebar-types__item-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sidebar-types__item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
 }
 
 .sidebar-types__item:hover {
@@ -94,12 +162,16 @@ html, body {
 .sidebar-types__item.is-active {
   background: var(--bg-selected);
   color: var(--text-primary);
+  font-weight: 500;
 }
 
 .sidebar-types__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
-  opacity: 0.5;
+  opacity: 0.75;
   flex-shrink: 0;
 }
 
@@ -116,8 +188,9 @@ html, body {
 .sidebar-types__group-label {
   display: flex;
   align-items: center;
-  padding: var(--space-2) var(--space-4);
-  font-size: 10px;
+  margin-top: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -158,7 +231,8 @@ html, body {
 
 .sidebar-docs__header {
   height: var(--header-height);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  gap: var(--space-2);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -167,41 +241,22 @@ html, body {
 }
 
 .sidebar-docs__title {
-  font-size: var(--font-size-sm);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--text-primary);
-  truncate: ellipsis;
+  text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
 }
 
-.sidebar-docs__new-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--target-min);
-  height: var(--target-min);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.sidebar-docs__new-btn:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
-}
+/* An .icon-btn; the new-document button needs nothing more. */
 
 .sidebar-docs__list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-1) 0;
+  padding: var(--space-2) 0;
 }
 
 .sidebar-docs__empty {
@@ -232,7 +287,7 @@ html, body {
 }
 
 .sidebar-docs__item-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -348,6 +403,39 @@ html, body {
 .save-status--error {
   color: var(--red);
   font-weight: 600;
+}
+
+.save-status--offline {
+  color: var(--pending);
+  font-weight: 600;
+}
+
+.save-status--saving {
+  color: var(--text-secondary);
+}
+
+/* The dot pulses while something is on its way to the server. */
+.editor-header__dirty-dot.is-saving {
+  animation: save-pulse 1s ease-in-out infinite;
+}
+
+@keyframes save-pulse {
+  50% { opacity: 0.3; }
+}
+
+/* A published document whose saved edits are not live yet (save-status.js). */
+.draft-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.draft-state__label {
+  color: var(--pending);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .editor-header__actions {
@@ -480,6 +568,8 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-8) var(--space-6);
+  /* Room for the floating toolbar pill, which otherwise sits on the last field. */
+  padding-bottom: calc(var(--space-8) + 72px);
 }
 
 /* ---------- Document Form ---------- */
@@ -537,6 +627,9 @@ html, body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-input);
+  /* One line height for inputs and the wrapping textareas that replace most
+     of them, so the two are the same height side by side. */
+  line-height: 1.5;
   padding: var(--space-2) var(--space-3);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   outline: none;
@@ -560,6 +653,26 @@ html, body {
   resize: vertical;
   min-height: 100px;
   line-height: 1.6;
+}
+
+/* Growing boxes (components/autogrow.js) set their own height, so a drag
+   handle would only fight them. */
+.field-textarea--grow,
+.field-input--wrap {
+  resize: none;
+  overflow-y: hidden;
+}
+
+.field-textarea--grow {
+  min-height: 0;
+}
+
+/* A one-line field that wraps: looks like an input, never scrolls sideways. */
+.field-input--wrap {
+  display: block;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .field-textarea--json {
@@ -658,7 +771,7 @@ html, body {
 }
 
 .pm-editor {
-  background: #111111;
+  background: var(--bg-input);
   padding: var(--space-4) var(--space-5);
   min-height: 220px;
   outline: none;
@@ -716,7 +829,7 @@ html, body {
   background: var(--bg-elevated);
   padding: 1px 5px;
   border-radius: 3px;
-  color: #e06c75;
+  color: var(--text-primary);
 }
 
 .pm-editor .ProseMirror pre {
@@ -749,7 +862,7 @@ html, body {
 
 /* ProseMirror selection */
 .pm-editor .ProseMirror ::selection {
-  background: rgba(76, 110, 245, 0.3);
+  background: var(--selection);
 }
 
 /* ---------- Empty / Loading States ---------- */
@@ -816,7 +929,7 @@ html, body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   min-width: 240px;
   max-width: 360px;
   pointer-events: auto;
@@ -869,7 +982,7 @@ html, body {
 .overlay-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   z-index: 8000;
   display: flex;
   align-items: center;
@@ -889,7 +1002,7 @@ html, body {
   padding: var(--space-6);
   max-width: 360px;
   width: calc(100% - var(--space-8));
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-lg);
 }
 
 .overlay-dialog__title {
@@ -927,7 +1040,7 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--text-muted);
 }
 
 /* ---------- Utility ---------- */
@@ -1046,7 +1159,7 @@ html, body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-md);
   max-height: 260px;
   overflow-y: auto;
 }
@@ -1403,7 +1516,7 @@ html, body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
   z-index: 500;
   overflow: hidden;
 }
@@ -1666,7 +1779,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 .picker-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -1681,7 +1794,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-lg);
 }
 
 .picker-modal__iframe {
@@ -1715,7 +1828,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   backdrop-filter: blur(2px);
 }
 
@@ -1726,7 +1839,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
 }
 
 .changeset-drawer__header {
@@ -1928,7 +2041,8 @@ details.doc-meta[open] .doc-meta__summary::before {
 /* ---------- Document filter ---------- */
 .sidebar-docs__search {
   width: calc(100% - var(--space-3) * 2);
-  margin: var(--space-2) var(--space-3) 0;
+  margin: var(--space-3) var(--space-3) 0;
+  flex-shrink: 0;
   min-height: var(--target-min);
   background: var(--bg-input);
   border: 1px solid var(--border-default);
@@ -1936,7 +2050,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-input);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-3);
   outline: none;
   -webkit-appearance: none;
   appearance: none;
@@ -1944,6 +2058,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 
 .sidebar-docs__search:focus {
   border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .sidebar-docs__search::placeholder {
@@ -1953,18 +2068,7 @@ details.doc-meta[open] .doc-meta__summary::before {
 /* ---------- Drawer toggle (small screens only) ---------- */
 .editor-header__drawer-toggle {
   display: none;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--target-min);
-  min-height: var(--target-min);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--font-size-md);
-  line-height: 1;
-  flex-shrink: 0;
+  margin-left: calc(var(--space-2) * -1);
 }
 
 .sidebar-types__header {
@@ -1982,42 +2086,120 @@ details.doc-meta[open] .doc-meta__summary::before {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   z-index: 39;
 }
 
 /* ---------- Responsive ---------- */
+/* ---------- Columns: resize and collapse (components/layout.js) ----------
+   Navigation becomes an icon rail when collapsed, or on its own at 900px and
+   below; layout.js sets .nav-rail on #app for both. Below 640px it never
+   does, because the columns are a route stack there. */
+.nav-rail .sidebar-types {
+  width: 52px;
+}
+.nav-rail .sidebar-types__logo,
+.nav-rail .sidebar-types__item-label {
+  display: none;
+}
+.nav-rail .sidebar-types__header {
+  justify-content: center;
+  padding: 0;
+}
+.nav-rail .sidebar-types__tools {
+  margin-left: 0;
+}
+.nav-rail .sidebar-types__list {
+  padding: var(--space-2) 6px;
+}
+/* Group labels would clip mid-word in a rail. The groups still collapse and
+   expand: only the label text goes, and the caret stays a real target. */
+.nav-rail .sidebar-types__group-label {
+  font-size: 0;
+  min-height: var(--target-min);
+  padding: 0;
+  margin-top: var(--space-2);
+  justify-content: center;
+}
+.nav-rail .sidebar-types__group-label::before {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.nav-rail .sidebar-types__item {
+  justify-content: center;
+  padding: var(--space-2);
+}
+.nav-rail .sidebar-types__footer {
+  justify-content: center;
+}
+
+.sidebar-types__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.docs-collapsed .sidebar-docs,
+.docs-collapsed .col-resizer--docs,
+.nav-rail .col-resizer--nav {
+  display: none;
+}
+
+/* Only there to bring a hidden document list back. */
+.editor-header__docs-reveal {
+  display: none;
+  margin-left: calc(var(--space-2) * -1);
+}
+.docs-collapsed .editor-header__docs-reveal {
+  display: inline-flex;
+}
+
+/* A zero-width flex child whose ::before is the 9px hit area straddling the
+   column border; the line lights up on hover, focus and drag. */
+.col-resizer {
+  position: relative;
+  flex: 0 0 0;
+  z-index: 6;
+  outline: none;
+}
+.col-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  cursor: col-resize;
+}
+.col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 3px;
+  background: transparent;
+  transition: background var(--transition-fast);
+  pointer-events: none;
+}
+.col-resizer:hover::after,
+.col-resizer:focus-visible::after,
+.col-resizer.is-dragging::after {
+  background: var(--border-strong);
+}
+/* While dragging, keep the col-resize cursor everywhere and stop the drag
+   selecting text in the panels it passes over. */
+body.is-resizing,
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 @media (max-width: 900px) {
-  .sidebar-types {
-    width: 48px;
-  }
-  .sidebar-types__logo,
-  .sidebar-types__item span {
-    display: none;
-  }
-  /* Group labels arrived after this breakpoint was written and nothing hid
-     them, so they clipped mid-word in a 48px column. The groups still
-     collapse and expand — only the label text goes. */
-  .sidebar-types__group-label {
-    font-size: 0;
-    min-height: var(--target-min);
-    padding: 0;
-    justify-content: center;
-  }
-  /* Only the caret survives, so make it a real target rather than a stray
-     mark — it is still the control that collapses the group. */
-  .sidebar-types__group-label::before {
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-    margin: 0;
-  }
-  .sidebar-types__item {
-    justify-content: center;
-    padding: var(--space-2);
-  }
-  .sidebar-types__item-icon {
-    opacity: 0.8;
-  }
   :root {
     --doc-list-width: 200px;
   }
@@ -2051,9 +2233,15 @@ details.doc-meta[open] .doc-meta__summary::before {
     z-index: 41;
   }
 
+  .col-resizer,
+  .sidebar-types__collapse,
+  .sidebar-docs__collapse {
+    display: none !important;
+  }
+
   .sidebar-docs {
     z-index: 42;
-    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-md);
   }
 
   /* Types while no type is chosen; documents once one is. */
@@ -2071,7 +2259,7 @@ details.doc-meta[open] .doc-meta__summary::before {
   .sidebar-types__logo {
     display: block;
   }
-  .sidebar-types__item span {
+  .sidebar-types__item-label {
     display: inline;
   }
   .sidebar-types__item {
@@ -2136,7 +2324,8 @@ details.doc-meta[open] .doc-meta__summary::before {
     display: block;
     border-top: 1px solid var(--border-subtle);
     margin-top: auto;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding: var(--space-2);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
   }
 
   /* Back to the type list. Hidden at width, where both are columns. */
@@ -2217,6 +2406,11 @@ details.doc-meta[open] .doc-meta__summary::before {
 
   .publish-toggle {
     margin-right: auto;
+  }
+
+  /* No room for the label in the action bar: the button says it on its own. */
+  .draft-state__label {
+    display: none;
   }
 
   /* Floating panels are desktop windows; at this width they take the screen. */

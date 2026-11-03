@@ -71,6 +71,7 @@ def make_admin_routes(admin: GatewayAdmin) -> list:
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gateway Admin</title>
   <link rel="stylesheet" href="{cms_base}/static/tokens.css" />
+  <script src="{cms_base}/static/theme.js"></script>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{

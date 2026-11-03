@@ -41,10 +41,14 @@ import {
   onFieldChange,
   saveDocument,
   togglePublish,
+  publishChanges,
   deleteActiveDoc,
   hasUnsavedBodyEdits,
 } from './standard/actions.js'
 import { el } from './utils.js'
+import { icon } from './icons.js'
+import { buildThemeToggle } from './theme.js'
+import { createLayout } from './components/layout.js'
 import { startFieldSync, unsavedFields } from './field-sync.js'
 
 /**
@@ -161,18 +165,25 @@ function buildShell() {
   const root = document.getElementById('app');
   root.innerHTML = '';
 
+  // Columns are wired once the panels exist; the controls are made first so
+  // the headers below can place them. createLayout only reads the panels'
+  // widths when a drag starts.
+  const columns = {};
+  const layout = createLayout(root, columns);
+
   const typeSidebar = el('aside', { class: 'sidebar-types' },
     el('div', { class: 'sidebar-types__header' },
       el('span', { class: 'sidebar-types__logo' }, 'Astraeus'),
+      el('div', { class: 'sidebar-types__tools' }, layout.navToggle),
       // At full width the panel covers the backdrop and the header toggle, so
       // without this there is no way out but the device back gesture.
       el('button', {
-        class: 'sidebar-types__close',
+        class: 'sidebar-types__close icon-btn',
         type: 'button',
         title: 'Close',
         'aria-label': 'Close navigation',
         onclick: () => closeDocDrawer(),
-      }, '\u00d7')
+      }, icon('x', { size: 20 }))
     ),
     el('nav', { class: 'sidebar-types__list', id: 'type-list' }),
     // Changesets and Chat are destinations, not document actions, so on small
@@ -186,7 +197,7 @@ function buildShell() {
           closeDocDrawer();
           state.changesetPanel?.toggle();
         },
-      }, el('span', { class: 'sidebar-types__item-icon' }, '\u{1F4CB}'), el('span', {}, 'Changesets')),
+      }, el('span', { class: 'sidebar-types__item-icon' }, icon('layers')), el('span', { class: 'sidebar-types__item-label' }, 'Changesets')),
       el('button', {
         class: 'sidebar-types__item',
         type: 'button',
@@ -194,27 +205,32 @@ function buildShell() {
           closeDocDrawer();
           state.chatPanel?.toggle();
         },
-      }, el('span', { class: 'sidebar-types__item-icon' }, '\u{1F4AC}'), el('span', {}, 'Chat'))
-    )
+      }, el('span', { class: 'sidebar-types__item-icon' }, icon('chat')), el('span', { class: 'sidebar-types__item-label' }, 'Chat'))
+    ),
+    // At the foot so it stays reachable when the column is an icon rail.
+    el('div', { class: 'sidebar-types__footer' }, buildThemeToggle())
   );
 
   const docSidebar = el('aside', { class: 'sidebar-docs' },
     el('div', { class: 'sidebar-docs__header' },
       el('button', {
-        class: 'sidebar-docs__back',
+        class: 'sidebar-docs__back icon-btn',
         type: 'button',
         title: 'Back to types',
         'aria-label': 'Back to types',
         onclick: showTypeRoute,
-      }, '\u2039'),
-      el('span', { class: 'sidebar-docs__title', id: 'doc-list-title' }, '—'),
+      }, icon('chevron-left', { size: 20 })),
+      el('span', { class: 'sidebar-docs__title', id: 'doc-list-title' }, 'Documents'),
       el('button', {
-        class: 'sidebar-docs__new-btn',
+        class: 'sidebar-docs__new-btn icon-btn',
         id: 'doc-new-btn',
+        type: 'button',
         title: 'New document',
+        'aria-label': 'New document',
         style: 'display:none',
         onclick: openNewDocFromList,
-      }, '+')
+      }, icon('plus')),
+      layout.docsToggle
     ),
     el('input', {
       class: 'sidebar-docs__search',
@@ -225,25 +241,35 @@ function buildShell() {
       oninput: e => setState({ docFilter: e.target.value }),
     }),
     el('div', { class: 'sidebar-docs__list', id: 'doc-list' },
-      el('div', { class: 'sidebar-docs__empty' }, 'Select a type')
+      el('div', { class: 'sidebar-docs__empty' }, 'Choose a type to see its documents')
     )
   );
 
   const main = el('main', { class: 'main-content' },
     el('header', { class: 'editor-header' },
       el('button', {
-        class: 'editor-header__drawer-toggle',
+        class: 'editor-header__drawer-toggle icon-btn',
         type: 'button',
         title: 'Documents',
         'aria-label': 'Show document list',
         onclick: () => toggleDocDrawer(state),
-      }, '☰'),
+      }, icon('menu', { size: 20 })),
+      layout.docsReveal,
       el('div', { class: 'editor-header__title-wrap' },
         el('h1', { class: 'editor-header__title', id: 'header-title' }, 'CMS Editor'),
         el('span', { class: 'editor-header__dirty-dot', id: 'dirty-dot', title: 'Unsaved changes' }),
         el('span', { class: 'save-status', id: 'save-status', style: 'display:none', 'aria-live': 'polite' })
       ),
       el('div', { class: 'editor-header__actions' },
+        // A published document with saved edits the live site lacks (save-status.js).
+        el('div', { class: 'draft-state', id: 'draft-state', style: 'display:none' },
+          el('span', { class: 'draft-state__label', 'data-draft-label': '' }, 'Unpublished changes'),
+          el('button', {
+            class: 'btn btn--primary btn--sm',
+            type: 'button',
+            onclick: publishChanges,
+          }, 'Publish changes')
+        ),
         el('div', { class: 'publish-toggle', id: 'publish-wrap', style: 'display:none' },
           el('label', { class: 'toggle-switch', for: 'publish-toggle-input' },
             el('input', {
@@ -281,9 +307,14 @@ function buildShell() {
     onclick: closeDocDrawer,
   });
 
+  columns.nav = typeSidebar;
+  columns.docs = docSidebar;
+
   root.appendChild(typeSidebar);
+  root.appendChild(layout.navResizer);
   root.appendChild(backdrop);
   root.appendChild(docSidebar);
+  root.appendChild(layout.docsResizer);
   root.appendChild(main);
 
   wireDocDrawerDismiss();

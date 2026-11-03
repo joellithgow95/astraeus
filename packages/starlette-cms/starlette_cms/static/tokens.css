@@ -26,13 +26,20 @@
    chrome — they appear, say what happened, and leave. Stripping them would
    cost legibility and buy no discipline.
 
-   Surfaces are dark by default. Mediakit opts into a light ramp with
-   data-astraeus-theme="light", because media is judged against its ground:
-   a dark one makes light images glow and dark images disappear. Everything
-   except the surface and text ramp is shared.
+   Light and dark. A surface follows the operating system's appearance
+   (prefers-color-scheme) unless <html> carries data-astraeus-theme="light" or
+   "dark", which wins either way. theme.js (served beside this file) sets that
+   attribute from the person's stored choice, so a choice made in one admin
+   surface holds in all of them. Mediakit pins "light", because media is
+   judged against its ground: a dark one makes light images glow and dark
+   images disappear. Only the surface, text and shadow ramp differs; spacing,
+   type, radius, targets and transitions are shared.
    ============================================================ */
 
 :root {
+  /* Native controls (date pickers, scrollbars, autofill) follow the ramp. */
+  color-scheme: dark;
+
   /* Backgrounds */
   --bg-base:        #0d0d0d;
   --bg-surface:     #141414;
@@ -79,6 +86,14 @@
   --yellow:         #d29922;
   --yellow-dim:     rgba(210, 153, 34, 0.15);
 
+  /* Depth. A dark ground needs heavy shadows to read at all; the light ramp
+     softens them. --overlay is the scrim behind a modal or drawer. */
+  --shadow-sm:      0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-md:      0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg:      0 16px 48px rgba(0, 0, 0, 0.6);
+  --overlay:        rgba(0, 0, 0, 0.6);
+  --selection:      rgba(232, 232, 232, 0.22);
+
   /* Typography */
   --font-sans:      -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
   --font-mono:      "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, monospace;
@@ -117,28 +132,75 @@
 }
 
 /* ---------- Light surface ramp ----------
-   Opt in with data-astraeus-theme="light" on <html>. Only the surface and text
-   ramp differ; spacing, type, radius, targets, transitions and --pending are
-   shared, so a light surface stays part of the same system.
+   Applied when the system asks for light and nothing pins dark, or when
+   data-astraeus-theme="light" pins it. The two blocks below must stay
+   identical (test_static_tokens checks): CSS has no way to share a
+   declaration list between a media query and an attribute selector without
+   a build step, and this file has none on purpose.
 
-   Mediakit uses this because media is judged against its ground. --pending
-   darkens slightly to hold contrast on a light surface. */
+   Measured against --bg-base #fbfbfa: text 16.5:1 / 6.5:1 / 5.2:1, the
+   default border 3.4:1 (WCAG 1.4.11), --pending 7.0:1. --pending darkens to
+   hold contrast on a light surface. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-astraeus-theme="dark"]) {
+    color-scheme: light;
+
+    --bg-base:        #fbfbfa;
+    --bg-surface:     #ffffff;
+    --bg-elevated:    #f4f4f2;
+    --bg-hover:       #ebebe8;
+    --bg-selected:    #e4e4e0;
+    --bg-input:       #ffffff;
+
+    --border-subtle:  #dcdcd6;
+    --border-default: #8a8a83;
+    --border-strong:  #6b6b64;
+    --border-focus:   #3a3a37;
+
+    --text-primary:   #1c1c1a;
+    --text-secondary: #5c5c57;
+    --text-muted:     #6b6b64;
+    --text-link:      #1c1c1a;
+
+    --accent:         #1c1c1a;
+    --accent-hover:   #000000;
+    --accent-dim:     rgba(28, 28, 26, 0.08);
+    --accent-on:      #ffffff;
+
+    --pending:        #a81f25;
+    --pending-dim:    rgba(168, 31, 37, 0.10);
+
+    --green:          #1a7f37;
+    --green-dim:      rgba(26, 127, 55, 0.12);
+    --yellow:         #9a6700;
+    --yellow-dim:     rgba(154, 103, 0, 0.12);
+
+    --shadow-sm:      0 1px 3px rgba(28, 28, 26, 0.10);
+    --shadow-md:      0 6px 20px rgba(28, 28, 26, 0.12);
+    --shadow-lg:      0 16px 40px rgba(28, 28, 26, 0.16);
+    --overlay:        rgba(28, 28, 26, 0.32);
+    --selection:      rgba(28, 28, 26, 0.14);
+  }
+}
+
 [data-astraeus-theme="light"] {
+  color-scheme: light;
+
   --bg-base:        #fbfbfa;
   --bg-surface:     #ffffff;
   --bg-elevated:    #f4f4f2;
-  --bg-hover:       #eeeeec;
-  --bg-selected:    #e8e8e5;
+  --bg-hover:       #ebebe8;
+  --bg-selected:    #e4e4e0;
   --bg-input:       #ffffff;
 
-  --border-subtle:  #d5d5cf;
-  --border-default: #9a9a93;
-  --border-strong:  #77776f;
-  --border-focus:   #57575a;
+  --border-subtle:  #dcdcd6;
+  --border-default: #8a8a83;
+  --border-strong:  #6b6b64;
+  --border-focus:   #3a3a37;
 
   --text-primary:   #1c1c1a;
   --text-secondary: #5c5c57;
-  --text-muted:     #77776f;
+  --text-muted:     #6b6b64;
   --text-link:      #1c1c1a;
 
   --accent:         #1c1c1a;
@@ -147,7 +209,18 @@
   --accent-on:      #ffffff;
 
   --pending:        #a81f25;
-  --pending-dim:    rgba(168, 31, 37, 0.12);
+  --pending-dim:    rgba(168, 31, 37, 0.10);
+
+  --green:          #1a7f37;
+  --green-dim:      rgba(26, 127, 55, 0.12);
+  --yellow:         #9a6700;
+  --yellow-dim:     rgba(154, 103, 0, 0.12);
+
+  --shadow-sm:      0 1px 3px rgba(28, 28, 26, 0.10);
+  --shadow-md:      0 6px 20px rgba(28, 28, 26, 0.12);
+  --shadow-lg:      0 16px 40px rgba(28, 28, 26, 0.16);
+  --overlay:        rgba(28, 28, 26, 0.32);
+  --selection:      rgba(28, 28, 26, 0.14);
 }
 
 /* A mouse or trackpad can hit a smaller target than a thumb, so density is
@@ -155,6 +228,9 @@
 @media (hover: hover) and (pointer: fine) {
   :root {
     --target-min: 28px;
+    /* The 16px floor exists for iOS Safari, which never reports a fine
+       pointer, so a desktop can have denser inputs without the zoom. */
+    --font-size-input: 14px;
   }
 }
 

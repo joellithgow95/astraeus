@@ -56,7 +56,7 @@ const PANEL_STYLES = `
   border-radius: 12px;
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 13px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-md, 0 4px 24px rgba(0,0,0,0.5));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -314,7 +314,7 @@ export class ChangesetPanel {
         const menu = document.createElement('div');
         menu.style.cssText = `
           background: var(--border-default); border: 1px solid var(--border-strong); border-radius: 8px;
-          padding: 4px 0; margin: 0 14px 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          padding: 4px 0; margin: 0 14px 4px; box-shadow: var(--shadow-sm, 0 2px 8px rgba(0,0,0,0.3));
         `;
 
         const menuItemStyle = `

@@ -750,6 +750,25 @@ describe('CollabConnection failure surfacing', () => {
     conn.destroy()
   })
 
+  it('reports a save time only when its own steps come back confirmed', () => {
+    const toolbar = { ...makeLoudToolbar(), setSaved: vi.fn(), setConnected: vi.fn() }
+    const conn = makeConn(toolbar)
+    conn.ws.onopen()
+    expect(toolbar.setConnected).toHaveBeenCalledWith(true)
+
+    // Someone else's steps: nothing of ours was saved.
+    conn._handleMessage({ type: 'steps', steps: [{ stepType: 'replace' }], clientIDs: ['other'], version: 1 })
+    expect(toolbar.setSaved).not.toHaveBeenCalled()
+
+    conn._handleMessage({ type: 'steps', steps: [{ stepType: 'replace' }], clientIDs: ['abc'], version: 1 })
+    expect(toolbar.setSaved).toHaveBeenCalledTimes(1)
+    expect(toolbar.setSaved.mock.calls[0][0]).toBeInstanceOf(Date)
+
+    conn.ws.onclose({ code: 1006 })
+    expect(toolbar.setConnected).toHaveBeenLastCalledWith(false)
+    conn.destroy()
+  })
+
   it('tells the editor when a write from outside it was folded in', () => {
     const toolbar = makeLoudToolbar()
     const conn = makeConn(toolbar)

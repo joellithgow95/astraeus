@@ -19,9 +19,11 @@
  * later, wins. A field the person is typing in is never rewritten under them.
  */
 
+import { resizeTextarea } from './components/autogrow.js'
 import { state, setState } from './state.js'
 import { patchDocument } from './api.js'
 import { clearDraft, draftKey } from './draft-buffer.js'
+import { noteSaved, reportFields } from './save-status.js'
 
 /** How often the form is compared with the saved values (ms). */
 export const TICK_MS = 600
@@ -73,23 +75,12 @@ export function markSaved(formData) {
   state.fieldSaveError = null
 }
 
-/** Show the save status in the header without a full re-render. */
+/** Report the plain fields' state to the header (save-status.js). */
 function paintStatus() {
-  const el = document.getElementById('save-status')
-  if (!el) return
-  let text = 'Saved'
-  let cls = 'save-status'
-  if (state.fieldSaveError) {
-    text = `Not saved: ${state.fieldSaveError}`
-    cls += ' save-status--error'
-  } else if (_inflight || Object.keys(unsavedFields()).length) {
-    text = 'Saving…'
-  }
-  el.textContent = text
-  el.className = cls
-  el.title = state.fieldSaveError || ''
-  const dot = document.getElementById('dirty-dot')
-  if (dot) dot.classList.toggle('is-visible', text !== 'Saved')
+  reportFields({
+    error: state.fieldSaveError || null,
+    pending: !state.fieldSaveError && Boolean(_inflight || Object.keys(unsavedFields()).length),
+  })
 }
 
 /**
@@ -132,6 +123,7 @@ export async function flushFields() {
       }
       const left = Object.keys(unsavedFields()).length
       state.isDirty = left > 0
+      noteSaved()
       if (!left) clearDraft(draftKey(docId, state.activeType))
       return left === 0
     } catch (err) {
@@ -249,6 +241,7 @@ export function applyRemoteFields(msg) {
     if (!input || !('value' in input) || input.type === 'checkbox') return true
     if (input === document.activeElement) return true
     input.value = form[name] ?? ''
+    resizeTextarea(input)
     return false
   }).some(Boolean)
   if (needsRender) {

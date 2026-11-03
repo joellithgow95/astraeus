@@ -8,6 +8,7 @@ import { buildDocumentRefPicker } from './document-ref-picker.js'
 import { buildLinksInput } from './links-input.js'
 import { buildTagInput, buildTagsInput } from './tags-input.js'
 import { getFieldWidget } from '../field-widgets.js'
+import { autoGrow, singleLine } from './autogrow.js'
 
 /**
  * Determine what kind of UI widget to use for a field.
@@ -73,9 +74,14 @@ export function fieldWidget(name, prop, meta) {
 
   // Long text heuristics
   const maxLen = prop.maxLength || meta?.max_length;
-  const longNames = ['body', 'description', 'overview', 'summary', 'content', 'excerpt', 'bio', 'text'];
+  const longNames = [
+    'body', 'description', 'overview', 'summary', 'content', 'excerpt', 'bio', 'text',
+    'definition', 'note', 'quote', 'caption', 'abstract', 'tagline', 'blurb',
+  ];
   const isLong = (maxLen && maxLen > 300) || longNames.some(n => name.includes(n));
-  if (type === 'string' && isLong) return 'textarea';
+  // An optional field is anyOf [string, null] rather than type: string.
+  const isString = type === 'string' || (Array.isArray(anyOf) && anyOf.some(s => s.type === 'string'));
+  if (isString && isLong) return 'textarea';
 
   return 'input';
 }
@@ -209,20 +215,22 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
       break;
 
     case 'textarea': {
-      const ta = el('textarea', {
-        class: 'field-textarea',
+      const ta = autoGrow(el('textarea', {
+        class: 'field-textarea field-textarea--grow',
         id: `field-${name}`,
+        rows: '3',
         placeholder: meta.placeholder || '',
-        oninput: e => onFieldChange(name, e.target.value),
-      });
+      }));
+      ta.addEventListener('input', e => onFieldChange(name, e.target.value));
       ta.value = currentVal || '';
       group.appendChild(ta);
       break;
     }
 
     case 'json': {
-      const ta = el('textarea', {
-        class: 'field-textarea field-textarea--json',
+      const ta = autoGrow(el('textarea', {
+        class: 'field-textarea field-textarea--json field-textarea--grow',
+        rows: '3',
         id: `field-${name}`,
         placeholder: '{}',
         onblur: e => {
@@ -237,7 +245,7 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
         oninput: e => {
           try { onFieldChange(name, JSON.parse(e.target.value)); } catch { /* ignore */ }
         },
-      });
+      }));
       const rawVal = typeof currentVal === 'string' ? currentVal
         : currentVal != null ? JSON.stringify(currentVal, null, 2) : '';
       ta.value = rawVal;
@@ -346,16 +354,31 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
     }
 
     default: { // 'input'
-      const input = el('input', {
-        class: 'field-input',
+      // A URL stays a real <input type="url"> (no spaces to wrap at, and the
+      // phone keyboard has the right keys). Any other short text wraps
+      // rather than scrolling sideways, so the whole value is visible.
+      if (meta.field_type === 'url') {
+        const input = el('input', {
+          class: 'field-input',
+          id: `field-${name}`,
+          type: 'url',
+          placeholder: meta.placeholder || '',
+          value: currentVal || '',
+          oninput: e => onFieldChange(name, e.target.value),
+        });
+        if (prop.maxLength) input.setAttribute('maxlength', prop.maxLength);
+        group.appendChild(input);
+        break;
+      }
+      const ta = singleLine(el('textarea', {
+        class: 'field-input field-input--wrap',
         id: `field-${name}`,
-        type: 'text',
         placeholder: meta.placeholder || '',
-        value: currentVal || '',
-        oninput: e => onFieldChange(name, e.target.value),
-      });
-      if (prop.maxLength) input.setAttribute('maxlength', prop.maxLength);
-      group.appendChild(input);
+      }));
+      ta.addEventListener('input', e => onFieldChange(name, e.target.value));
+      ta.value = currentVal || '';
+      if (prop.maxLength) ta.setAttribute('maxlength', prop.maxLength);
+      group.appendChild(ta);
       break;
     }
   }
