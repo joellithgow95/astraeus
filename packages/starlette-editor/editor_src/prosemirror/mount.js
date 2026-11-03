@@ -13,6 +13,7 @@ import { markdownToPmDoc, pmDocToMarkdown } from './markdown.js'
 import { execPmCommand, updateToolbarState } from './toolbar.js'
 import { fieldWidget } from '../components/fields.js'
 import { state } from '../state.js'
+import { forgetBody, noteSaved, reportBody, resetSaveStatus } from '../save-status.js'
 
 // Re-exported so existing importers of this module keep working.
 export { schemaWithLists }
@@ -85,23 +86,54 @@ export function hideCollabBanner(kind) {
 }
 
 /**
- * Toolbar for CollabConnection in the shell: the saving dot plus the banner.
+ * Toolbar for CollabConnection in the shell: the header's save status
+ * (save-status.js) plus the banner for errors and notices.
  * Peer presence and AI editing animations are no-ops here for now.
  *
+ * Call `refresh()` after anything that may change whether typed steps are
+ * unconfirmed; the status is read from the connection, not guessed.
+ *
+ * @param {string} field
  * @param {() => string} getText  The field's current text, for "Copy my text".
  */
-function _makeCollabToolbarShim(getText) {
-  return {
-    setState(s) {
-      // Update dirty dot: 'saving' → show spinner class, 'editing' → clear
-      const dot = document.getElementById('dirty-dot')
-      if (dot) dot.classList.toggle('is-saving', s === 'saving')
+export function _makeCollabToolbarShim(field, getText) {
+  const shim = {
+    conn: null,          // the CollabConnection, set once it exists
+    _connected: false,
+    _everConnected: false,
+    _error: null,
+    refresh() {
+      reportBody(field, {
+        connected: shim._connected,
+        connecting: !shim._everConnected,
+        pending: Boolean(shim.conn?.hasUnconfirmedSteps?.()),
+        error: shim._error,
+      })
+    },
+    setState() {
+      // 'saving' / 'editing': whatever it says, the connection knows better.
+      shim.refresh()
+    },
+    setConnected(connected) {
+      shim._connected = connected
+      if (connected) shim._everConnected = true
+      shim.refresh()
+    },
+    setSaved(at) {
+      shim._error = null
+      noteSaved(at)
+      shim.refresh()
     },
     setSaveError(message) {
+      // The "connection lost" warning is the offline state, not a failure.
+      if (!/^⚠ Connection lost/.test(message)) shim._error = message
       showCollabBanner(message, { kind: 'error', getText })
+      shim.refresh()
     },
     clearSaveError() {
+      shim._error = null
       hideCollabBanner('error')
+      shim.refresh()
     },
     setNotice(message) {
       // Never cover an unresolved error with a notice.
@@ -112,6 +144,7 @@ function _makeCollabToolbarShim(getText) {
     updatePeers() {},   // no peer presence display in shell (yet)
     setAiEditing() {},  // no AI pulse in shell (yet)
   }
+  return shim
 }
 
 /**
@@ -179,6 +212,10 @@ export async function mountProseMirrorEditors(fields, onFieldChange, { cmsBase, 
         plugins: [...exampleSetup({ schema: schemaWithLists, menuBar: false }), collab({ version: 0, clientID })],
       })
       let collabConn = null
+      const shim = _makeCollabToolbarShim(
+        name,
+        () => view.state.doc.textBetween(0, view.state.doc.content.size, '\n\n'),
+      )
       const view = new EditorView(mountEl, {
         state: pmState,
         dispatchTransaction(tr) {
@@ -187,7 +224,10 @@ export async function mountProseMirrorEditors(fields, onFieldChange, { cmsBase, 
           // Refresh toolbar active state on every transaction (selection moves too)
           const toolbar = document.getElementById(`pm-toolbar-${name}`)
           updateToolbarState(view, toolbar)
-          if (collabConn && tr.docChanged) collabConn.onTransaction()
+          if (collabConn && tr.docChanged) {
+            collabConn.onTransaction()
+            shim.refresh()
+          }
         },
       })
       collabConn = new CollabConnection({
@@ -197,10 +237,12 @@ export async function mountProseMirrorEditors(fields, onFieldChange, { cmsBase, 
         field: name,
         cmsBase: resolvedCmsBase,
         initialVersion: 0,
-        toolbar: _makeCollabToolbarShim(() => view.state.doc.textBetween(0, view.state.doc.content.size, '\n\n')),
+        toolbar: shim,
         clientID,
         apiKey: apiKey || null,
       })
+      shim.conn = collabConn
+      shim.refresh()
       state.pmInstances[name] = view
       state.collabConnections[name] = collabConn
     } else {
@@ -269,8 +311,12 @@ export function destroyPmInstances({ keep = [] } = {}) {
   for (const [name, conn] of Object.entries(state.collabConnections)) {
     if (keep.includes(name)) { conns[name] = conn; continue }
     try { conn.destroy(); } catch { /* already destroyed */ }
+    forgetBody(name)
   }
   state.pmInstances = pm;
   state.collabConnections = conns;
-  if (!Object.keys(conns).length) hideCollabBanner();
+  if (!Object.keys(conns).length) {
+    hideCollabBanner();
+    if (!keep.length) resetSaveStatus();
+  }
 }

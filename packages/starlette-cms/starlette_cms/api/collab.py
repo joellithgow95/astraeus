@@ -169,10 +169,6 @@ def make_collab_routes(cms: CMS) -> list:
             )
             await websocket.close(code=4403)
             return
-        # Changeset this connection's persisted edits are already grouped into,
-        # so we link once per changeset rather than on every step batch.
-        linked_cs: str | None = None
-
         # Register connection and bind the server-assigned client_id
         await manager.add_connection(room, websocket)
         manager._bind_client(websocket, client_id)
@@ -327,19 +323,23 @@ def make_collab_routes(cms: CMS) -> list:
                         # normally does this. The client sends its active changeset
                         # id; when we create a fresh one, tell the client to adopt
                         # it so title/description edits join the same changeset.
+                        #
+                        # Linked on every accepted batch, not once per connection:
+                        # an editor with no active changeset sends None, and caching
+                        # "linked for None" skipped the first link too, so a body edit
+                        # to a published post joined no changeset. The document can
+                        # also leave its changeset while the editor stays open (it is
+                        # published on its own, or its changeset ships), and the next
+                        # edit must land in a fresh one. When the document is already
+                        # in an open changeset this is two small reads.
                         active_cs_id = data.get("activeChangesetId")
-                        if active_cs_id != linked_cs:
-                            try:
-                                created = await link_document_to_changeset(
-                                    document_id, doc_type, active_cs_id, cms.default_changeset
-                                )
-                                linked_cs = created[0] if created else active_cs_id
-                                if created is not None:
-                                    await websocket.send_json(
-                                        {"type": "changeset", "id": created[0], "title": created[1]}
-                                    )
-                            except Exception:
-                                pass  # never drop the connection over changeset bookkeeping
+                        created = None
+                        try:
+                            created = await link_document_to_changeset(
+                                document_id, doc_type, active_cs_id, cms.default_changeset
+                            )
+                        except Exception:
+                            pass  # never drop the connection over changeset bookkeeping
 
                         # Broadcast to ALL connections (including sender — sender
                         # uses this as its confirmation receipt)
@@ -352,6 +352,11 @@ def make_collab_routes(cms: CMS) -> list:
                                 "version": result.version,
                             },
                         )
+                        # After the confirmation, so the sender sees its steps first.
+                        if created is not None:
+                            await websocket.send_json(
+                                {"type": "changeset", "id": created[0], "title": created[1]}
+                            )
                     else:
                         await websocket.send_json(
                             {

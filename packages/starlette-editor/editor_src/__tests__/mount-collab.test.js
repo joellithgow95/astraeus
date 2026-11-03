@@ -87,3 +87,41 @@ describe('mountProseMirrorEditors re-render', () => {
     expect(document.getElementById('collab-save-banner').dataset.kind).toBe('notice')
   })
 })
+
+describe('shell save status for the body', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="pm-mount-body"></div><span id="dirty-dot"></span><span id="save-status"></span>'
+  })
+
+  it('reads the status from the connection: connecting, saving, saved', async () => {
+    await mountProseMirrorEditors(FIELDS, vi.fn(), { cmsBase: 'http://x', docId: 'doc-1' })
+    const conn = conns[0]
+    const status = () => document.getElementById('save-status').textContent
+
+    expect(status()).toBe('Connecting…')
+    conn.toolbar.setConnected(true)
+    expect(status()).toBe('Saved')
+
+    conn.hasUnconfirmedSteps = () => true
+    conn.toolbar.setState('saving')
+    expect(status()).toBe('Saving…')
+
+    conn.toolbar.setConnected(false)
+    expect(status()).toContain('Offline')
+
+    conn.toolbar.setConnected(true)
+    conn.hasUnconfirmedSteps = () => false
+    conn.toolbar.setSaved(new Date())
+    expect(status()).toBe('Saved just now')
+  })
+
+  it('does not count the connection-lost warning as a failure', async () => {
+    await mountProseMirrorEditors(FIELDS, vi.fn(), { cmsBase: 'http://x', docId: 'doc-1' })
+    const conn = conns[0]
+    conn.toolbar.setConnected(true)
+    conn.hasUnconfirmedSteps = () => true
+    conn.toolbar.setConnected(false)
+    conn.toolbar.setSaveError('⚠ Connection lost — your latest edits are not saved yet.')
+    expect(document.getElementById('save-status').dataset.kind).toBe('offline')
+  })
+})

@@ -10,6 +10,7 @@ import { buildImagePickerField } from '../components/image-picker.js'
 import { buildMetaPanel } from '../components/meta-panel.js'
 import { mountProseMirrorEditors } from '../prosemirror/mount.js'
 import { state } from '../state.js'
+import { paintDraftState, paintSaveStatus } from '../save-status.js'
 
 /** Simple emoji-based icons based on common type names. */
 function typeIcon(typeKey) {
@@ -241,6 +242,8 @@ export function renderHeader(togglePublish, saveDocument, deleteActiveDoc) {
   if (saveBtn) saveBtn.style.display = isNew ? '' : 'none';
   const saveStatus = $('save-status');
   if (saveStatus) saveStatus.style.display = isNew ? 'none' : '';
+  paintSaveStatus();
+  paintDraftState();
   if (deleteBtn) deleteBtn.style.display = doc ? '' : 'none';
 
   const isDraftDeleted = doc && doc.draft_deleted;

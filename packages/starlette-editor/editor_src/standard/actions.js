@@ -11,6 +11,7 @@ import {
   setDraftPublishState,
   setDraftDeleted,
   addDocToChangeset,
+  publishDocument,
 } from '../api.js'
 import { setActiveChangesetId } from '../changeset-store.js'
 import { clearDraft, draftKey, loadDraft, saveDraft } from '../draft-buffer.js'
@@ -20,6 +21,7 @@ import { destroyPmInstances } from '../prosemirror/mount.js'
 import { pmDocToMarkdown } from '../prosemirror/markdown.js'
 import { docTitle } from '../utils.js'
 import { flushFields, markSaved, unsavedFields } from '../field-sync.js'
+import { paintDraftState } from '../save-status.js'
 
 
 /**
@@ -351,6 +353,60 @@ export async function togglePublish() {
   } catch (err) {
     showToast('error', 'Failed to change publish state', err.message);
   }
+}
+
+/**
+ * Publish the active document's saved draft now: the "Publish changes" button
+ * next to "Unpublished changes" on a published document.
+ *
+ * Publishes this document alone (it leaves its changeset, as publishing one
+ * document always does). Waits for every edit to be stored first, so what
+ * goes live is what the editor shows.
+ */
+export async function publishChanges() {
+  const doc = state.activeDoc;
+  if (!doc) return;
+
+  if (!(await flushFields()) || hasUnsavedBodyEdits()) {
+    showToast('error', 'Not published', 'Some edits are still saving. Wait for "Saved", then publish.');
+    return;
+  }
+
+  const ok = await showConfirm(
+    'Publish changes?',
+    `The live site will show your edits to "${docTitle(doc)}" once it rebuilds (about a minute).`,
+    'Publish',
+  );
+  if (!ok) return;
+
+  const btn = document.querySelector('#draft-state button');
+  if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+  try {
+    const published = await publishDocument(doc.id);
+    if (state.activeDocId !== doc.id) return;
+    setState({ activeDoc: { ...doc, ...published, has_draft: false } }, false);
+    renderPublishState();
+    state.changesetPanel?.refresh?.();
+    showToast('success', 'Published', `${docTitle(doc)}: the site rebuilds in about a minute`);
+  } catch (err) {
+    showToast('error', 'Failed to publish', err?.data?.error || err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    paintDraftState();
+  }
+}
+
+/**
+ * Repaint the header's publish toggle and draft pill without re-rendering the
+ * form (which would move the cursor out of the body).
+ */
+function renderPublishState() {
+  const doc = state.activeDoc;
+  const label = document.getElementById('publish-toggle-label');
+  const input = document.getElementById('publish-toggle-input');
+  if (doc && input) input.checked = !!(doc.draft_published ?? doc.published);
+  if (doc && label && doc.draft_published == null) label.textContent = doc.published ? 'Published' : 'Draft';
+  paintDraftState();
 }
 
 /**

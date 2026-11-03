@@ -350,6 +350,39 @@ html, body {
   font-weight: 600;
 }
 
+.save-status--offline {
+  color: var(--pending);
+  font-weight: 600;
+}
+
+.save-status--saving {
+  color: var(--text-secondary);
+}
+
+/* The dot pulses while something is on its way to the server. */
+.editor-header__dirty-dot.is-saving {
+  animation: save-pulse 1s ease-in-out infinite;
+}
+
+@keyframes save-pulse {
+  50% { opacity: 0.3; }
+}
+
+/* A published document whose saved edits are not live yet (save-status.js). */
+.draft-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.draft-state__label {
+  color: var(--pending);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+
 .editor-header__actions {
   display: flex;
   align-items: center;
@@ -2217,6 +2250,11 @@ details.doc-meta[open] .doc-meta__summary::before {
 
   .publish-toggle {
     margin-right: auto;
+  }
+
+  /* No room for the label in the action bar: the button says it on its own. */
+  .draft-state__label {
+    display: none;
   }
 
   /* Floating panels are desktop windows; at this width they take the screen. */
