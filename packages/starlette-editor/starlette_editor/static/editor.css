@@ -627,6 +627,9 @@ html, body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-input);
+  /* One line height for inputs and the wrapping textareas that replace most
+     of them, so the two are the same height side by side. */
+  line-height: 1.5;
   padding: var(--space-2) var(--space-3);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   outline: none;
@@ -650,6 +653,26 @@ html, body {
   resize: vertical;
   min-height: 100px;
   line-height: 1.6;
+}
+
+/* Growing boxes (components/autogrow.js) set their own height, so a drag
+   handle would only fight them. */
+.field-textarea--grow,
+.field-input--wrap {
+  resize: none;
+  overflow-y: hidden;
+}
+
+.field-textarea--grow {
+  min-height: 0;
+}
+
+/* A one-line field that wraps: looks like an input, never scrolls sideways. */
+.field-input--wrap {
+  display: block;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .field-textarea--json {
