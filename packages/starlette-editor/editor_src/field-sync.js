@@ -19,6 +19,7 @@
  * later, wins. A field the person is typing in is never rewritten under them.
  */
 
+import { resizeTextarea } from './components/autogrow.js'
 import { state, setState } from './state.js'
 import { patchDocument } from './api.js'
 import { clearDraft, draftKey } from './draft-buffer.js'
@@ -240,6 +241,7 @@ export function applyRemoteFields(msg) {
     if (!input || !('value' in input) || input.type === 'checkbox') return true
     if (input === document.activeElement) return true
     input.value = form[name] ?? ''
+    resizeTextarea(input)
     return false
   }).some(Boolean)
   if (needsRender) {
