@@ -99,6 +99,10 @@ html, body {
   flex-shrink: 0;
 }
 
+.icon-btn[hidden] {
+  display: none;
+}
+
 .icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -2064,37 +2068,115 @@ details.doc-meta[open] .doc-meta__summary::before {
 }
 
 /* ---------- Responsive ---------- */
+/* ---------- Columns: resize and collapse (components/layout.js) ----------
+   Navigation becomes an icon rail when collapsed, or on its own at 900px and
+   below; layout.js sets .nav-rail on #app for both. Below 640px it never
+   does, because the columns are a route stack there. */
+.nav-rail .sidebar-types {
+  width: 52px;
+}
+.nav-rail .sidebar-types__logo,
+.nav-rail .sidebar-types__item-label {
+  display: none;
+}
+.nav-rail .sidebar-types__header {
+  justify-content: center;
+  padding: 0;
+}
+.nav-rail .sidebar-types__tools {
+  margin-left: 0;
+}
+.nav-rail .sidebar-types__list {
+  padding: var(--space-2) 6px;
+}
+/* Group labels would clip mid-word in a rail. The groups still collapse and
+   expand: only the label text goes, and the caret stays a real target. */
+.nav-rail .sidebar-types__group-label {
+  font-size: 0;
+  min-height: var(--target-min);
+  padding: 0;
+  margin-top: var(--space-2);
+  justify-content: center;
+}
+.nav-rail .sidebar-types__group-label::before {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.nav-rail .sidebar-types__item {
+  justify-content: center;
+  padding: var(--space-2);
+}
+.nav-rail .sidebar-types__footer {
+  justify-content: center;
+}
+
+.sidebar-types__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.docs-collapsed .sidebar-docs,
+.docs-collapsed .col-resizer--docs,
+.nav-rail .col-resizer--nav {
+  display: none;
+}
+
+/* Only there to bring a hidden document list back. */
+.editor-header__docs-reveal {
+  display: none;
+  margin-left: calc(var(--space-2) * -1);
+}
+.docs-collapsed .editor-header__docs-reveal {
+  display: inline-flex;
+}
+
+/* A zero-width flex child whose ::before is the 9px hit area straddling the
+   column border; the line lights up on hover, focus and drag. */
+.col-resizer {
+  position: relative;
+  flex: 0 0 0;
+  z-index: 6;
+  outline: none;
+}
+.col-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  cursor: col-resize;
+}
+.col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 3px;
+  background: transparent;
+  transition: background var(--transition-fast);
+  pointer-events: none;
+}
+.col-resizer:hover::after,
+.col-resizer:focus-visible::after,
+.col-resizer.is-dragging::after {
+  background: var(--border-strong);
+}
+/* While dragging, keep the col-resize cursor everywhere and stop the drag
+   selecting text in the panels it passes over. */
+body.is-resizing,
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 @media (max-width: 900px) {
-  .sidebar-types {
-    width: 48px;
-  }
-  .sidebar-types__logo,
-  .sidebar-types__item-label {
-    display: none;
-  }
-  /* Group labels arrived after this breakpoint was written and nothing hid
-     them, so they clipped mid-word in a 48px column. The groups still
-     collapse and expand — only the label text goes. */
-  .sidebar-types__group-label {
-    font-size: 0;
-    min-height: var(--target-min);
-    padding: 0;
-    justify-content: center;
-  }
-  /* Only the caret survives, so make it a real target rather than a stray
-     mark — it is still the control that collapses the group. */
-  .sidebar-types__group-label::before {
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-    margin: 0;
-  }
-  .sidebar-types__item {
-    justify-content: center;
-    padding: var(--space-2);
-  }
-  .sidebar-types__item-icon {
-    opacity: 0.8;
-  }
   :root {
     --doc-list-width: 200px;
   }
@@ -2126,6 +2208,12 @@ details.doc-meta[open] .doc-meta__summary::before {
 
   .sidebar-types {
     z-index: 41;
+  }
+
+  .col-resizer,
+  .sidebar-types__collapse,
+  .sidebar-docs__collapse {
+    display: none !important;
   }
 
   .sidebar-docs {

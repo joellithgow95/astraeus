@@ -48,6 +48,7 @@ import {
 import { el } from './utils.js'
 import { icon } from './icons.js'
 import { buildThemeToggle } from './theme.js'
+import { createLayout } from './components/layout.js'
 import { startFieldSync, unsavedFields } from './field-sync.js'
 
 /**
@@ -164,10 +165,16 @@ function buildShell() {
   const root = document.getElementById('app');
   root.innerHTML = '';
 
+  // Columns are wired once the panels exist; the controls are made first so
+  // the headers below can place them. createLayout only reads the panels'
+  // widths when a drag starts.
+  const columns = {};
+  const layout = createLayout(root, columns);
+
   const typeSidebar = el('aside', { class: 'sidebar-types' },
     el('div', { class: 'sidebar-types__header' },
       el('span', { class: 'sidebar-types__logo' }, 'Astraeus'),
-      el('div', { class: 'sidebar-types__tools' }, buildThemeToggle()),
+      el('div', { class: 'sidebar-types__tools' }, layout.navToggle),
       // At full width the panel covers the backdrop and the header toggle, so
       // without this there is no way out but the device back gesture.
       el('button', {
@@ -199,7 +206,9 @@ function buildShell() {
           state.chatPanel?.toggle();
         },
       }, el('span', { class: 'sidebar-types__item-icon' }, icon('chat')), el('span', { class: 'sidebar-types__item-label' }, 'Chat'))
-    )
+    ),
+    // At the foot so it stays reachable when the column is an icon rail.
+    el('div', { class: 'sidebar-types__footer' }, buildThemeToggle())
   );
 
   const docSidebar = el('aside', { class: 'sidebar-docs' },
@@ -220,7 +229,8 @@ function buildShell() {
         'aria-label': 'New document',
         style: 'display:none',
         onclick: openNewDocFromList,
-      }, icon('plus'))
+      }, icon('plus')),
+      layout.docsToggle
     ),
     el('input', {
       class: 'sidebar-docs__search',
@@ -244,6 +254,7 @@ function buildShell() {
         'aria-label': 'Show document list',
         onclick: () => toggleDocDrawer(state),
       }, icon('menu', { size: 20 })),
+      layout.docsReveal,
       el('div', { class: 'editor-header__title-wrap' },
         el('h1', { class: 'editor-header__title', id: 'header-title' }, 'CMS Editor'),
         el('span', { class: 'editor-header__dirty-dot', id: 'dirty-dot', title: 'Unsaved changes' }),
@@ -296,9 +307,14 @@ function buildShell() {
     onclick: closeDocDrawer,
   });
 
+  columns.nav = typeSidebar;
+  columns.docs = docSidebar;
+
   root.appendChild(typeSidebar);
+  root.appendChild(layout.navResizer);
   root.appendChild(backdrop);
   root.appendChild(docSidebar);
+  root.appendChild(layout.docsResizer);
   root.appendChild(main);
 
   wireDocDrawerDismiss();
