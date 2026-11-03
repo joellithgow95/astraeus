@@ -66,6 +66,7 @@ def make_editor_routes(editor: Editor) -> list:
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CMS Editor</title>
   <link rel="stylesheet" href="{cms_mount}/static/tokens.css" />
+  <script src="{cms_mount}/static/theme.js"></script>
   <link rel="stylesheet" href="{mount}/static/editor.css?v={_CSS_HASH}" />
 </head>
 <body>

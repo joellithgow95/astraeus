@@ -87,6 +87,20 @@ async def test_shell_injects_config():
 
 
 @pytest.mark.anyio
+async def test_shell_applies_the_stored_theme_before_paint():
+    """The shell loads the CMS's theme bootstrap right after the tokens, in <head>."""
+    _, editor = _build_cms_and_editor()
+    app = Starlette(routes=[Mount("/editor", app=editor.app)])
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        resp = await client.get("/editor/shell")
+
+    head = resp.text.split("</head>")[0]
+    assert head.index("/static/tokens.css") < head.index("/static/theme.js")
+
+
+@pytest.mark.anyio
 async def test_shell_injects_media_base_null():
     """Shell HTML contains mediaBase: null when Editor has no media_base."""
     from starlette_cms.app import CMS

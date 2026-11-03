@@ -184,7 +184,7 @@ export function draftState(doc, { changesetTitle = null } = {}) {
     text: 'Unpublished changes',
     title:
       'Your edits are saved as a draft. The live site still shows the published version ' +
-      `until you publish: here for this document alone, or with ${where} from 📋.`,
+      `until you publish: here for this document alone, or with ${where} from Changesets.`,
     action: 'Publish changes',
   }
 }

@@ -3,6 +3,7 @@ import { setActiveChangesetId } from '../changeset-store.js'
 import { setState } from '../state.js'
 import { apiFetch } from '../api.js'
 import { showToast } from '../components/toast.js'
+import { icon } from '../icons.js'
 
 const LS_KEY = 'cms-editor-toolbar-geometry'
 
@@ -37,7 +38,7 @@ export class EditorToolbar {
       font-family: var(--font-sans, system-ui, sans-serif);
       font-size: 12px;
       color: var(--text-secondary, #8a8a8a);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.4));
       user-select: none;
       cursor: default;
     `
@@ -81,7 +82,7 @@ export class EditorToolbar {
       align-items: center;
       gap: 4px;
       padding: 0 12px;
-      height: 100%;
+      align-self: stretch;
       background: none;
       border: none;
       color: var(--text-secondary, #8a8a8a);
@@ -138,7 +139,7 @@ export class EditorToolbar {
       align-items: center;
       gap: 6px;
       padding: 0 14px;
-      height: 100%;
+      align-self: stretch;
       background: none;
       border: none;
       color: var(--text-secondary, #8a8a8a);
@@ -154,11 +155,11 @@ export class EditorToolbar {
       : 'Changesets'
     const count = state.activeChangesetDocCount || 0
 
-    let label = `📋 ${title}`
+    let label = title
     if (hasActive && count > 0) {
       label += ` (${count})`
     }
-    seg.textContent = label
+    seg.replaceChildren(icon('layers', { size: 14 }), document.createTextNode(label))
 
     if (hasActive && count > 0) {
       seg.style.color = 'var(--text-primary, #e8e8e8)'
@@ -185,7 +186,7 @@ export class EditorToolbar {
       align-items: center;
       gap: 4px;
       padding: 0 12px;
-      height: 100%;
+      align-self: stretch;
       background: none;
       border: none;
       color: var(--text-secondary, #8a8a8a);
@@ -194,7 +195,7 @@ export class EditorToolbar {
       white-space: nowrap;
       position: relative;
     `
-    seg.textContent = '💬 Chat'
+    seg.replaceChildren(icon('chat', { size: 14 }), document.createTextNode('Chat'))
 
     if (this._unread > 0) {
       const dot = document.createElement('span')
@@ -244,13 +245,13 @@ export class EditorToolbar {
       display: flex;
       align-items: center;
       padding: 0 10px;
-      height: 100%;
+      align-self: stretch;
       cursor: grab;
       color: var(--text-muted, #555555);
       font-size: 14px;
       border-radius: 0 20px 20px 0;
     `
-    grip.textContent = '⠿'
+    grip.replaceChildren(icon('grip', { size: 14 }))
     grip.title = 'Drag to reposition'
 
     grip.addEventListener('mouseenter', () => {

@@ -39,7 +39,7 @@ const PANEL_STYLES = `
   border-radius: 12px;
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 13px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-md, 0 4px 24px rgba(0,0,0,0.5));
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -524,7 +524,7 @@ export class ChatPanel {
 
     const title = document.createElement('span')
     title.style.cssText = 'font-weight: 700; color: var(--text-primary);'
-    title.textContent = '💬 Chat'
+    title.textContent = 'Chat'
 
     const closeBtn = document.createElement('button')
     closeBtn.style.cssText = `${BTN_BASE} background: transparent; color: var(--text-muted); font-size: 16px; padding: 0 4px;`

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { humanizeType, humanizeFieldName, docTitle, formatDate, getOrderedFields, getDefaultValue, el } from '../utils.js'
+import { humanizeType, pluralize, singularize, humanizeFieldName, docTitle, formatDate, getOrderedFields, getDefaultValue, el } from '../utils.js'
 import { filterDocuments } from '../standard/render.js'
 
 describe('humanizeType', () => {
@@ -17,7 +17,35 @@ describe('humanizeType', () => {
   })
 
   it('handles multi-word types', () => {
-    expect(humanizeType('project_case_study')).toBe('Project Case Studys')
+    expect(humanizeType('project_case_study')).toBe('Project Case Studies')
+  })
+
+  it('pluralizes words ending in a consonant and y with -ies', () => {
+    expect(humanizeType('experience_entry')).toBe('Experience Entries')
+  })
+})
+
+describe('pluralize / singularize', () => {
+  it.each([
+    ['post', 'posts'],
+    ['entry', 'entries'],
+    ['day', 'days'],
+    ['box', 'boxes'],
+    ['match', 'matches'],
+    ['class', 'classes'],
+  ])('%s ↔ %s', (one, many) => {
+    expect(pluralize(one)).toBe(many)
+    expect(singularize(many)).toBe(one)
+  })
+
+  it('leaves an already-plural word alone', () => {
+    expect(pluralize('Bookmarks')).toBe('Bookmarks')
+  })
+})
+
+describe('docTitle', () => {
+  it('falls back to a term before the slug', () => {
+    expect(docTitle({ slug: 'claw-as-a-service', body: { term: 'Claw as a Service' } })).toBe('Claw as a Service')
   })
 })
 

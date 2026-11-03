@@ -2,7 +2,8 @@
  * standard/render.js — Top-level render functions for each UI panel.
  */
 
-import { $, el, humanizeType, docTitle, formatDate, getOrderedFields } from '../utils.js'
+import { $, el, humanizeType, singularize, docTitle, formatDate, getOrderedFields } from '../utils.js'
+import { icon, typeIconName } from '../icons.js'
 import { buildSlugField, buildFieldGroup } from '../components/fields.js'
 import { buildProseMirrorPlaceholder } from '../components/fields.js'
 import { buildBlockCanvas } from '../components/block-canvas.js'
@@ -11,19 +12,6 @@ import { buildMetaPanel } from '../components/meta-panel.js'
 import { mountProseMirrorEditors } from '../prosemirror/mount.js'
 import { state } from '../state.js'
 import { paintDraftState, paintSaveStatus } from '../save-status.js'
-
-/** Simple emoji-based icons based on common type names. */
-function typeIcon(typeKey) {
-  if (typeKey.includes('blog') || typeKey.includes('post')) return '📝';
-  if (typeKey.includes('page')) return '📄';
-  if (typeKey.includes('project')) return '🗂';
-  if (typeKey.includes('experience') || typeKey.includes('job')) return '💼';
-  if (typeKey.includes('product') || typeKey.includes('item')) return '📦';
-  if (typeKey.includes('user') || typeKey.includes('author')) return '👤';
-  if (typeKey.includes('category') || typeKey.includes('tag')) return '🏷';
-  if (typeKey.includes('media') || typeKey.includes('image')) return '🖼';
-  return '◻';
-}
 
 /**
  * The name shown for a document type: its schema `label` if it has one, else
@@ -44,12 +32,16 @@ function typeLabel(typeKey) {
  * @returns {HTMLElement}
  */
 function buildTypeItem(typeKey, selectType) {
-  return el('div', {
+  const label = typeLabel(typeKey);
+  return el('button', {
+    type: 'button',
     class: `sidebar-types__item${state.activeType === typeKey ? ' is-active' : ''}`,
+    title: label,
+    'aria-current': state.activeType === typeKey ? 'page' : null,
     onclick: () => selectType(typeKey),
   },
-    el('span', { class: 'sidebar-types__item-icon' }, typeIcon(typeKey)),
-    el('span', {}, typeLabel(typeKey))
+    el('span', { class: 'sidebar-types__item-icon' }, icon(typeIconName(typeKey, state.schema?.[typeKey]))),
+    el('span', { class: 'sidebar-types__item-label' }, label)
   );
 }
 
@@ -141,14 +133,14 @@ export function renderDocList(selectDoc, openNewDoc) {
   const newBtn = $('doc-new-btn');
   const listEl = $('doc-list');
 
-  if (titleEl) titleEl.textContent = state.activeType ? typeLabel(state.activeType) : '—';
+  if (titleEl) titleEl.textContent = state.activeType ? typeLabel(state.activeType) : 'Documents';
   if (newBtn) newBtn.style.display = state.activeType ? '' : 'none';
   if (!listEl) return;
 
   listEl.innerHTML = '';
 
   if (!state.activeType) {
-    listEl.appendChild(el('div', { class: 'sidebar-docs__empty' }, 'Select a type'));
+    listEl.appendChild(el('div', { class: 'sidebar-docs__empty' }, 'Choose a type to see its documents'));
     return;
   }
 
@@ -234,7 +226,7 @@ export function renderHeader(togglePublish, saveDocument, deleteActiveDoc) {
   const isNew = state.activeDocId === null && state.activeType !== null;
   const doc = state.activeDoc;
 
-  titleEl.textContent = isNew ? `New ${typeLabel(state.activeType).replace(/s$/, '')}` : docTitle(doc || {});
+  titleEl.textContent = isNew ? `New ${singularize(typeLabel(state.activeType))}` : docTitle(doc || {});
   if (dirtyDot) dirtyDot.classList.toggle('is-visible', state.isDirty);
   if (publishWrap) publishWrap.style.display = doc ? '' : 'none';
   // An existing document saves itself, field by field (field-sync.js): it gets

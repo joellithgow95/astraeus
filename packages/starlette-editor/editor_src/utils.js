@@ -3,17 +3,43 @@
  */
 
 /**
+ * The plural of an English noun, for type names: "entry" → "entries",
+ * "box" → "boxes", "post" → "posts". Already-plural words are left alone.
+ *
+ * @param {string} word
+ * @returns {string}
+ */
+export function pluralize(word) {
+  if (/[^aeiou]y$/i.test(word)) return word.slice(0, -1) + 'ies';
+  if (/(s|x|z|ch|sh)$/i.test(word)) return /ss$/i.test(word) || !/s$/i.test(word) ? word + 'es' : word;
+  return word + 's';
+}
+
+/**
+ * The singular of a plural made by pluralize(), for "New …" titles:
+ * "Entries" → "Entry", "Boxes" → "Box", "Posts" → "Post".
+ *
+ * @param {string} word
+ * @returns {string}
+ */
+export function singularize(word) {
+  if (/ies$/i.test(word)) return word.slice(0, -3) + 'y';
+  if (/(x|z|ch|sh|ss)es$/i.test(word)) return word.slice(0, -2);
+  if (/[^s]s$/i.test(word)) return word.slice(0, -1);
+  return word;
+}
+
+/**
  * Humanize a snake_case doc_type name.
- * "blog_post" → "Blog Posts"
+ * "blog_post" → "Blog Posts", "experience_entry" → "Experience Entries"
  *
  * @param {string} str
  * @returns {string}
  */
 export function humanizeType(str) {
-  return str
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase())
-    .replace(/s$/, '') + 's';
+  const words = str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).split(' ');
+  words[words.length - 1] = pluralize(words[words.length - 1]);
+  return words.join(' ');
 }
 
 /**
@@ -30,7 +56,7 @@ export function humanizeFieldName(name) {
 }
 
 /**
- * Get a display title for a document — prefers title > name > slug > id prefix > "Untitled".
+ * Get a display title for a document — prefers title > name > headline > term > label > slug > id prefix > "Untitled".
  *
  * @param {object|null} doc
  * @param {string} [labelField] — body field to prefer (a DocumentRef's `ref_label_field`)
@@ -39,7 +65,7 @@ export function humanizeFieldName(name) {
 export function docTitle(doc, labelField) {
   const body = doc?.body || {};
   const label = labelField ? body[labelField] : null;
-  return (typeof label === 'string' && label) || body.title || body.name || body.headline || doc?.slug || doc?.id?.slice(0, 8) || 'Untitled';
+  return (typeof label === 'string' && label) || body.title || body.name || body.headline || body.term || body.label || doc?.slug || doc?.id?.slice(0, 8) || 'Untitled';
 }
 
 /**

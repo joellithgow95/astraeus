@@ -38,6 +38,7 @@ _SHELL_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Feedback</title>
   <link rel="stylesheet" href="__CMS_BASE__/static/tokens.css" />
+  <script src="__CMS_BASE__/static/theme.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {

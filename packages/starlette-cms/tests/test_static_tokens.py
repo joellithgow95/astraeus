@@ -100,3 +100,83 @@ async def test_text_tokens_are_readable_on_the_base_surface(cms: CMS) -> None:
     ]:
         ratio = _contrast(token(name), background)
         assert ratio >= floor, f"{name} is {ratio:.2f}:1 against --bg-base, needs {floor}:1"
+
+
+def _light_blocks(body: str) -> tuple[str, str]:
+    """The two copies of the light ramp: under prefers-color-scheme, and pinned."""
+    media = re.search(
+        r"@media \(prefers-color-scheme: light\) \{\s*"
+        r':root:not\(\[data-astraeus-theme="dark"\]\) \{(.*?)\}\s*\}',
+        body,
+        re.S,
+    )
+    pinned = re.search(r'^\[data-astraeus-theme="light"\] \{(.*?)^\}', body, re.S | re.M)
+    assert media is not None and pinned is not None
+    return media.group(1), pinned.group(1)
+
+
+def _declarations(block: str) -> list[str]:
+    return [
+        line.strip()
+        for line in block.splitlines()
+        if line.strip().startswith(("--", "color-scheme"))
+    ]
+
+
+@pytest.mark.anyio
+async def test_light_ramp_follows_the_system_and_can_be_pinned(cms: CMS) -> None:
+    """The system-preference copy and the pinned copy of the light ramp match.
+
+    CSS cannot share one declaration list between a media query and an
+    attribute selector, so the ramp is written twice; this keeps the copies
+    from drifting apart.
+    """
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=cms.app), base_url="http://test"
+    ) as client:
+        body = (await client.get("/static/tokens.css")).text
+
+    media, pinned = _light_blocks(body)
+    assert _declarations(media) == _declarations(pinned)
+    assert "color-scheme: light;" in _declarations(pinned)
+
+
+@pytest.mark.anyio
+async def test_light_text_tokens_are_readable(cms: CMS) -> None:
+    """The light ramp clears the same floors as the dark one."""
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=cms.app), base_url="http://test"
+    ) as client:
+        body = (await client.get("/static/tokens.css")).text
+
+    _, pinned = _light_blocks(body)
+
+    def token(name: str) -> str:
+        match = re.search(rf"^\s*{re.escape(name)}:\s*(#[0-9a-fA-F]{{6}});", pinned, re.M)
+        assert match is not None, f"{name} not found in the light ramp"
+        return match.group(1)
+
+    background = token("--bg-base")
+    for name, floor in [
+        ("--text-primary", 4.5),
+        ("--text-secondary", 4.5),
+        ("--text-muted", 4.5),
+        ("--pending", 4.5),
+        ("--border-default", 3.0),
+    ]:
+        for ground in (background, token("--bg-elevated")):
+            ratio = _contrast(token(name), ground)
+            assert ratio >= floor, (
+                f"light {name} is {ratio:.2f}:1 against {ground}, needs {floor}:1"
+            )
+
+
+@pytest.mark.anyio
+async def test_theme_bootstrap_script_is_served(cms: CMS) -> None:
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=cms.app), base_url="http://test"
+    ) as client:
+        res = await client.get("/static/theme.js")
+
+    assert res.status_code == 200
+    assert "astraeus-theme" in res.text
