@@ -14,8 +14,8 @@
     <nav class="nav">
         <div class="nav-brand">MediaKit</div>
         <ul class="nav-links">
-            <li><a href="{{ base }}/admin">Assets</a></li>
-            <li><a href="{{ base }}/admin/upload">Upload</a></li>
+            <li><a href="{{ base }}/admin{% if picker %}?picker=1{% endif %}">Assets</a></li>
+            <li><a href="{{ base }}/admin/upload{% if picker %}?picker=1{% endif %}">Upload</a></li>
         </ul>
     </nav>
 

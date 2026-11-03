@@ -1,7 +1,7 @@
 """
 Hand-drawn shapes stored as SVG paths: the value shared by every field that
-holds a drawing (``DoodleField`` today, a single-drawing field for taste
-shapes next).
+holds a drawing: ``DoodleField`` (a list of placed doodles) and
+``DrawingField`` (one drawing, e.g. a taste shape).
 
 A drawing is a viewBox and a list of paths, one per stroke, each with its own
 stroke and fill, so an outline and a shaded area can sit in one drawing::

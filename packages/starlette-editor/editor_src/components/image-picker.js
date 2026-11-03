@@ -7,6 +7,19 @@ import { showToast } from './toast.js'
 
 const CONFIG = window.__EDITOR_CONFIG__ || { cmsBase: '', apiKey: null, mountPath: '/editor' };
 
+/**
+ * The image to show for a stored value: a URL as it is, or a Mediakit asset
+ * key as a small IIIF rendition.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+export function previewSrc(value) {
+  if (!value) return '';
+  if (/^(https?:|data:|\/)/.test(value)) return value;
+  return `${CONFIG.mediaBase}/iiif/${value}/full/400,/0/default.webp`;
+}
+
 /** Tracks which field the open picker modal is for. */
 let currentPickerField = null;
 
@@ -28,7 +41,7 @@ function onPickerMessage(event) {
   if (!data) return;
   const type = typeof data === 'string' ? data : data.type;
   if (type === 'mediakit:asset-selected') {
-    const value = (typeof data === 'object' ? (data.key || data.url) : null) || '';
+    const value = (typeof data === 'object' ? (data.key || data.asset?.key || data.url) : null) || '';
     if (currentPickerField) {
       // Dispatch a custom DOM event so callers can react without tight coupling
       document.dispatchEvent(new CustomEvent('editor:image-selected', {
@@ -36,7 +49,7 @@ function onPickerMessage(event) {
       }));
       // Update the preview thumbnail synchronously (if it's visible)
       const preview = document.getElementById(`img-preview-${currentPickerField}`);
-      if (preview && value) { preview.src = value; preview.style.display = ''; }
+      if (preview && value) { preview.src = previewSrc(value); preview.style.display = ''; }
       else if (preview) preview.style.display = 'none';
       const valEl = document.getElementById(`img-val-${currentPickerField}`);
       if (valEl) valEl.value = value;
@@ -89,7 +102,7 @@ export function buildImagePickerField(fieldName, currentValue, onFieldChange) {
     const img = el('img', {
       class: 'image-picker__preview',
       id: `img-preview-${fieldName}`,
-      src: currentValue || '',
+      src: previewSrc(currentValue || ''),
       alt: '',
     });
     img.style.display = currentValue ? '' : 'none';

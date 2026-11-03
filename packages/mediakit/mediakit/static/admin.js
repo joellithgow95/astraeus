@@ -11,6 +11,7 @@
 
 // Where mediakit is mounted ("" at the root, "/media" under a host app).
 const BASE = document.documentElement.dataset.mediaBase || '';
+const IS_PICKER = new URLSearchParams(window.location.search).get('picker') === '1';
 
 /* -------------------------------------------------------------------------
  * 1. Picker mode
@@ -34,20 +35,37 @@ function selectAsset(btn) {
         height: card.dataset.height ? parseInt(card.dataset.height, 10) : null,
     };
 
-    if (window.opener) {
-        window.opener.postMessage({ type: 'mediakit:asset-selected', asset }, '*');
-    }
-    window.close();
+    postPick(asset);
+}
+
+/**
+ * The window that opened the picker: a popup's opener, or the page an
+ * iframe picker is embedded in (the editor's image field). Null when the
+ * admin is not a picker.
+ */
+function pickerHost() {
+    if (window.opener) return window.opener;
+    if (window.parent && window.parent !== window) return window.parent;
+    return null;
+}
+
+/**
+ * Hand a chosen asset to the picker host and close. ``key`` is sent at the top
+ * level too, which is what the editor's image field reads.
+ */
+function postPick(asset) {
+    const host = pickerHost();
+    if (host) host.postMessage({ type: 'mediakit:asset-selected', key: asset.key, asset }, '*');
+    if (window.opener) window.close();
 }
 
 /**
  * Cancel picker mode — post cancellation message and close popup.
  */
 function cancelPicker() {
-    if (window.opener) {
-        window.opener.postMessage({ type: 'mediakit:picker-cancelled' }, '*');
-    }
-    window.close();
+    const host = pickerHost();
+    if (host) host.postMessage({ type: 'mediakit:picker-cancelled' }, '*');
+    if (window.opener) window.close();
 }
 
 /* -------------------------------------------------------------------------
@@ -127,16 +145,18 @@ async function deleteAsset(key) {
      */
     function handleFiles(files) {
         uploadQueue.hidden = false;
+        const single = files.length === 1;
         for (const file of files) {
-            uploadFile(file);
+            uploadFile(file, single);
         }
     }
 
     /**
      * Upload a single file through the two-step presigned flow.
      * @param {File} file
+     * @param {boolean} [single] the only file in this batch
      */
-    async function uploadFile(file) {
+    async function uploadFile(file, single = false) {
         const li = createUploadItem(file.name);
         uploadList.appendChild(li);
 
@@ -192,6 +212,13 @@ async function deleteAsset(key) {
             const asset = await confirmRes.json();
             setProgress(100);
             setStatus('Done', 'done');
+
+            // In the picker, uploading one image chooses it: on a phone this is
+            // "take a photo" and done.
+            if (IS_PICKER && asset.key && single) {
+                postPick({ key: asset.key, filename: file.name, contentType: file.type || null });
+                return;
+            }
 
             // Show thumbnail + link to detail
             if (asset.key) {

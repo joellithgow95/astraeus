@@ -404,3 +404,24 @@ class DoodleField(_BaseField):
         m = super().field_meta()
         m["field_type"] = "doodles"
         return m
+
+
+@dataclass
+class DrawingField(_BaseField):
+    """
+    One hand-drawn shape (``starlette_cms.drawing.Drawing``): a viewBox and
+    its SVG paths.
+
+    Stored as a JSON object and validated on save. The editor mounts a
+    drawing pad for it (field_type ``drawing``). A plain field, so it saves
+    last-writer-wins like a title (ADR 027).
+
+    Example::
+
+        shape: dict = DrawingField(label="Shape")
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "drawing"
+        return m

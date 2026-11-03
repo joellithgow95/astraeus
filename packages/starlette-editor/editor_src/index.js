@@ -50,6 +50,11 @@ import { icon } from './icons.js'
 import { buildThemeToggle } from './theme.js'
 import { createLayout } from './components/layout.js'
 import { startFieldSync, unsavedFields } from './field-sync.js'
+import { registerFieldWidget } from './field-widgets.js'
+import { createDrawingPad } from './components/drawing-pad.js'
+
+// DrawingField (one hand-drawn shape, e.g. a taste shape) draws in the form.
+registerFieldWidget('drawing', createDrawingPad)
 
 /**
  * Mirror the active changeset into shell state for the header.

@@ -1,6 +1,7 @@
 /**
  * components/drawing.js — the drawing value shared by every field that holds
- * a hand-drawn shape (doodles today, taste shapes next).
+ * a hand-drawn shape: doodles (DoodleField) and single drawings (DrawingField,
+ * drawn with components/drawing-pad.js).
  *
  * A drawing is plain JSON, mirrored by ``starlette_cms.drawing.Drawing``::
  *
