@@ -59,7 +59,7 @@ describe('saving', () => {
     expect(patch).toEqual({ body: { title: 'New' }, slug: 'new' })
     expect(opts.clientId).toBe(CLIENT_ID)
     expect(unsavedFields()).toEqual({})
-    expect(document.getElementById('save-status').textContent).toBe('Saved')
+    expect(document.getElementById('save-status').textContent).toBe('Saved just now')
   })
 
   it('shows a refused save and keeps the field unsaved', async () => {

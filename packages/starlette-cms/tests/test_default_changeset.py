@@ -278,3 +278,94 @@ class TestDefaultChangesetEndpoint:
     async def test_it_does_not_shadow_a_changeset_id(self, staged):
         cs = (await staged.post("/api/changesets", json={"title": "Mine"})).json()["id"]
         assert (await staged.get(f"/api/changesets/{cs}")).json()["title"] == "Mine"
+
+
+class TestBodyEditsOverTheCollabSocket:
+    """A body typed in the editor streams over the collab socket, not PATCH.
+
+    It used to skip the changeset link when the editor had no active changeset
+    (it sends ``activeChangesetId: null``), so an edit to a published post was
+    saved as a draft in no changeset: Staging looked empty and publishing it
+    shipped nothing.
+    """
+
+    @staticmethod
+    def _client():
+        from starlette.testclient import TestClient
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        cms = CMS(
+            database_url=f"sqlite:///{tmp.name}",
+            auth="none",
+            read_auth=False,
+            default_changeset="Staging",
+        )
+
+        @cms.block("article")
+        class ArticleBlock:
+            title: str = TextField(required=True)
+
+        app = Starlette(routes=[Mount("/", app=cms.app)], lifespan=cms.lifespan)
+        return TestClient(app), tmp.name
+
+    @staticmethod
+    def _type(ws, version: int, active: str | None = None) -> list[dict]:
+        """Send one step batch with *active* as the editor's changeset; return the replies."""
+        ws.receive_json() if version == 0 else None  # init
+        ws.send_json(
+            {
+                "type": "steps",
+                "steps": [{"stepType": "replace", "from": 0, "to": 0, "slice": {"content": []}}],
+                "clientID": "editor",
+                "version": version,
+                "doc": {"type": "doc", "content": []},
+                "activeChangesetId": active,
+            }
+        )
+        replies = [ws.receive_json()]
+        ws.send_json({"type": "ping"})
+        while (msg := ws.receive_json())["type"] != "pong":
+            replies.append(msg)
+        return replies
+
+    def _open_ids(self, client) -> dict[str, set[str]]:
+        resp = client.get("/api/changesets?status=open&include_documents=true")
+        return {c["title"]: {d["id"] for d in c["documents"]} for c in resp.json()["changesets"]}
+
+    def test_an_edit_to_a_published_post_joins_staging(self):
+        client, db_path = self._client()
+        try:
+            with client:
+                doc = client.post(
+                    "/api/documents", json={"doc_type": "article", "body": {"title": "Post"}}
+                ).json()["id"]
+                assert client.post(f"/api/documents/{doc}/publish").status_code == 200
+                assert self._open_ids(client).get("Staging", set()) == set()
+
+                with client.websocket_connect(f"/api/documents/{doc}/collab?field=body") as ws:
+                    replies = self._type(ws, 0)
+
+                assert replies[0]["type"] == "steps"  # the confirmation still comes first
+                assert self._open_ids(client)["Staging"] == {doc}
+        finally:
+            os.unlink(db_path)
+
+    def test_an_edit_after_publishing_from_an_open_editor_joins_again(self):
+        client, db_path = self._client()
+        try:
+            with client:
+                doc = client.post(
+                    "/api/documents", json={"doc_type": "article", "body": {"title": "Post"}}
+                ).json()["id"]
+                with client.websocket_connect(f"/api/documents/{doc}/collab?field=body") as ws:
+                    self._type(ws, 0)
+                    # Published on its own while the editor stays open: it leaves Staging.
+                    assert client.post(f"/api/documents/{doc}/publish").status_code == 200
+                    assert self._open_ids(client)["Staging"] == set()
+
+                    self._type(ws, 1)
+
+                assert self._open_ids(client)["Staging"] == {doc}
+        finally:
+            os.unlink(db_path)

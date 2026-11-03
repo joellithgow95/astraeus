@@ -41,6 +41,7 @@ import {
   onFieldChange,
   saveDocument,
   togglePublish,
+  publishChanges,
   deleteActiveDoc,
   hasUnsavedBodyEdits,
 } from './standard/actions.js'
@@ -244,6 +245,15 @@ function buildShell() {
         el('span', { class: 'save-status', id: 'save-status', style: 'display:none', 'aria-live': 'polite' })
       ),
       el('div', { class: 'editor-header__actions' },
+        // A published document with saved edits the live site lacks (save-status.js).
+        el('div', { class: 'draft-state', id: 'draft-state', style: 'display:none' },
+          el('span', { class: 'draft-state__label', 'data-draft-label': '' }, 'Unpublished changes'),
+          el('button', {
+            class: 'btn btn--primary btn--sm',
+            type: 'button',
+            onclick: publishChanges,
+          }, 'Publish changes')
+        ),
         el('div', { class: 'publish-toggle', id: 'publish-wrap', style: 'display:none' },
           el('label', { class: 'toggle-switch', for: 'publish-toggle-input' },
             el('input', {

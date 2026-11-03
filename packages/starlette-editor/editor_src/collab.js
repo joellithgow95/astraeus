@@ -142,6 +142,8 @@ export class CollabConnection {
 
   /** Everything typed is confirmed: drop the rescued copy and any error. */
   _allConfirmed() {
+    if (this._confirmedMine) this.toolbar?.setSaved?.(new Date())
+    this._confirmedMine = false
     clearTimeout(this._offlineTimer)
     this._offlineTimer = null
     this._hardError = null
@@ -171,6 +173,7 @@ export class CollabConnection {
 
     this.ws.onopen = () => {
       this._reconnectDelay = 1000  // reset backoff on successful connect
+      this.toolbar?.setConnected?.(true)
       clearTimeout(this._offlineTimer)
       this._offlineTimer = null
       // A prior connection error is resolved; a refusal or a lost catch-up is not.
@@ -192,6 +195,7 @@ export class CollabConnection {
       clearInterval(this._pingInterval)
       this._pingInterval = null
       if (this._destroyed) return
+      this.toolbar?.setConnected?.(false)
       // 4401 = auth rejected by the server. Reconnecting keeps failing, so stop
       // and surface it — the body-edit equivalent of a 401 on the PATCH path.
       if (event?.code === 4401) {
@@ -312,6 +316,8 @@ export class CollabConnection {
       )
       this.view.dispatch(tr)
       this.version = msg.version
+      // Our own steps coming back is the server saying they are stored.
+      if (clientIDs.some(id => id === this.clientID)) this._confirmedMine = true
 
       // Show saved indicator after confirmation
       this.toolbar.setState('editing')
