@@ -8,7 +8,7 @@ An open-source content stack for Python developers. Headless CMS, visual editor,
 |---------|-------------|------|
 | [`starlette-cms`](packages/starlette-cms) | Headless CMS — block registry, document API, webhooks, schema versioning | *(pre-release)* |
 | [`starlette-editor`](packages/starlette-editor) | Visual editing UI — ProseMirror-based, auto-generated from block schema | *(pre-release)* |
-| [`mediakit`](packages/mediakit) | Media management — S3-compatible storage, IIIF Image API, upload flow, admin UI | *(pre-release)* |
+| [`astraeus-media`](packages/astraeus-media) | Media management — S3-compatible storage, IIIF Image API, upload flow, admin UI | *(pre-release)* |
 
 ## How it fits together
 
@@ -18,7 +18,7 @@ An open-source content stack for Python developers. Headless CMS, visual editor,
 │                                                 │
 │  /cms     ← starlette-cms (content API)         │
 │  /editor  ← starlette-editor (visual UI)        │
-│  /media   ← mediakit (media management)         │
+│  /media   ← astraeus-media (media management)         │
 └─────────────────────────────────────────────────┘
          │ webhooks on publish
          ▼

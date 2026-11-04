@@ -1,7 +1,7 @@
 """
 MediaBackend protocol for starlette-cms.
 
-Defines the interface that a media storage backend (e.g. mediakit) must
+Defines the interface that a media storage backend (e.g. astraeus-media) must
 implement if ``ImageField`` key validation is desired at document save time.
 
 Usage::
@@ -40,7 +40,7 @@ class MediaBackend(Protocol):
         """
         Return ``True`` if *key* exists in the media catalog.
 
-        :param key: The image/media key to check (e.g. a Mediakit asset key
+        :param key: The image/media key to check (e.g. a astraeus-media asset key
             or a plain URL string, depending on the backend).
         """
         ...

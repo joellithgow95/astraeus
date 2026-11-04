@@ -14,12 +14,11 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from langchain_core.messages import HumanMessage
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket
-
-from langchain_core.messages import HumanMessage
 
 from .graph import build_graph
 from .providers.base import DEFAULT_MODEL

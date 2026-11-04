@@ -47,11 +47,11 @@ When a `MediaBackend` is configured:
 
 Without a configured backend, `ImageField` accepts any string value.
 
-## Using with Mediakit
+## Using with astraeus-media
 
-[Mediakit](https://github.com/ASneakyToast/astraeus) is the companion media management package in the Astraeus stack. It provides S3-compatible storage, IIIF Image API, and a presigned upload flow.
+[astraeus-media](https://github.com/ASneakyToast/astraeus) is the companion media management package in the Astraeus stack. It provides S3-compatible storage, IIIF Image API, and a presigned upload flow.
 
-Mediakit is a separate package (`pip install mediakit`) and is currently in development. When available, it will implement the `MediaBackend` protocol so `ImageField` values are validated against the Mediakit catalog.
+astraeus-media is a separate package (`pip install astraeus-media`) and is currently in development. When available, it will implement the `MediaBackend` protocol so `ImageField` values are validated against the astraeus-media catalog.
 
 ## Example
 

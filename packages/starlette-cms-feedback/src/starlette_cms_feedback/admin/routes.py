@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Route
+from starlette_cms.app_bar import app_bar_tag as _app_bar_tag
 
 from starlette_cms_feedback.models import (
     OPEN_STATUSES,
@@ -38,7 +39,7 @@ _SHELL_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Feedback</title>
   <link rel="stylesheet" href="__CMS_BASE__/static/tokens.css" />
-  <script src="__CMS_BASE__/static/theme.js"></script>
+  <script src="__CMS_BASE__/static/theme.js"></script>__APP_BAR__
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -372,7 +373,14 @@ def make_admin_routes(admin: FeedbackAdmin) -> list[Route]:
         # "<" is escaped so a component name can't close the script element.
         config_js = json.dumps(config).replace("<", "\\u003c")
 
-        html = _SHELL_HTML.replace("__CMS_BASE__", cms_base).replace(_CONFIG_TOKEN, config_js)
+        html = (
+            _SHELL_HTML.replace("__CMS_BASE__", cms_base)
+            .replace("__APP_BAR__", _app_bar_tag(admin.portal_url))
+            .replace(_CONFIG_TOKEN, config_js)
+        )
         return HTMLResponse(html)
 
-    return [Route("/shell", endpoint=shell_endpoint, methods=["GET"])]
+    return [
+        Route("/", endpoint=shell_endpoint, methods=["GET"]),
+        Route("/shell", endpoint=shell_endpoint, methods=["GET"]),
+    ]

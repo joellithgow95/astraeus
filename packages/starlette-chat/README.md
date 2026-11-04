@@ -38,7 +38,7 @@ chat = ChatAPI(
     provider=AnthropicProvider(api_key="your-anthropic-key"),
 )
 
-# Mount alongside CMS and mediakit
+# Mount alongside CMS and astraeus-media
 app.mount("/cms",   app=cms.app)
 app.mount("/chat",  app=chat.app)
 app.mount("/media", app=media.app)

@@ -2,7 +2,7 @@
 
 Phases are ordered by dependency. A future agent should always start at the earliest incomplete phase.
 
-**Current status:** Phases 0–14 complete (including EPIC-001 VPP MVP primitives, mediakit core+admin+MCP+CLI, starlette-editor Phases 1–3 + Phase 14 polish, ADR 017 observability). starlette-cms-gateways in use by joellithgow.com (Phases GW-0 to GW-4). starlette-editor is fully polished and PyPI-ready.
+**Current status:** Phases 0–14 complete (including EPIC-001 VPP MVP primitives, astraeus-media core+admin+MCP+CLI, starlette-editor Phases 1–3 + Phase 14 polish, ADR 017 observability). starlette-cms-gateways in use by joellithgow.com (Phases GW-0 to GW-4). starlette-editor is fully polished and PyPI-ready.
 
 **Use cases:** See `docs/use-cases/` for worked examples of Astraeus applied to real projects. These inform roadmap priorities and surface new primitives.
 
@@ -209,9 +209,9 @@ Together these establish Astraeus as a **governed data platform** — not just a
 
 ---
 
-## Phase 6 — mediakit core ✅
+## Phase 6 — astraeus-media core ✅
 
-**Goal:** A running Mediakit server that can accept uploads, serve IIIF derivatives, and maintain the catalog.
+**Goal:** A running astraeus-media server that can accept uploads, serve IIIF derivatives, and maintain the catalog.
 
 **Can develop in parallel with starlette-cms Phases 2–4.**
 
@@ -227,7 +227,7 @@ Together these establish Astraeus as a **governed data platform** — not just a
 ### 6b — Upload flow ✅
 - [x] `POST /upload/prepare` — validates request, generates presigned PUT URL, returns `{ upload_url, key, expires_at }`
 - [x] `POST /upload/confirm` — verifies object exists, runs processing pipeline, inserts into catalog
-- [x] Processing pipeline: EXIF strip, WebP conversion, max dimension cap (Pillow) — `mediakit/processing/pipeline.py` (opt-in: `keep_originals=False`; by default uploads are kept untouched)
+- [x] Processing pipeline: EXIF strip, WebP conversion, max dimension cap (Pillow) — `astraeus-media/processing/pipeline.py` (opt-in: `keep_originals=False`; by default uploads are kept untouched)
 - [x] Content-addressed key generation: `originals/{sha256_prefix}/{filename}`
 
 ### 6c — Catalog ✅
@@ -237,7 +237,7 @@ Together these establish Astraeus as a **governed data platform** — not just a
 - [x] `find_orphans`, `export_csv`
 
 ### 6d — IIIF Image API ✅
-- [x] IIIF URL parsing and parameter validation — `mediakit/routes/iiif.py`
+- [x] IIIF URL parsing and parameter validation — `astraeus-media/routes/iiif.py`
 - [x] Level 1 compliance: `full/square/x,y,w,h` region; `full/max/w,/,h/w,h/!w,h` size; `0/90/180/270` rotation; `default/color/gray` quality; `jpg/webp/png` format
 - [x] `GET /iiif/{key}/info.json`
 - [x] `GET /iiif/{key}/{region}/{size}/{rotation}/{quality}.{format}` — 302 redirect to cached derivative (or generate + cache)
@@ -335,34 +335,34 @@ Together these establish Astraeus as a **governed data platform** — not just a
 
 ---
 
-## Phase 7 — mediakit admin UI ✅
+## Phase 7 — astraeus-media admin UI ✅
 
 **Goal:** A usable browser interface for uploading and browsing assets, including picker mode.
 
 - [x] `GET /admin` — asset browser grid (IIIF square/256, thumbnails)
 - [x] Normal mode: click → detail view with metadata editor
-- [x] Picker mode (`?picker=1`): click → `postMessage("mediakit:asset-selected", ...)` + close
-- [x] Cancel button → `postMessage("mediakit:picker-cancelled", ...)`
+- [x] Picker mode (`?picker=1`): click → `postMessage("astraeus-media:asset-selected", ...)` + close
+- [x] Cancel button → `postMessage("astraeus-media:picker-cancelled", ...)`
 - [x] `GET /admin/upload` — drag-and-drop uploader (vanilla JS, no framework)
 - [x] Filtering by type and tag
 
 ---
 
-## Phase 8 — mediakit MCP server ✅
+## Phase 8 — astraeus-media MCP server ✅
 
 **Goal:** An agent can list, search, and manage media assets using tools.
 
-- [x] `pip install mediakit[mcp]`
-- [x] `mediakit mcp serve --url {base_url} --api-key {key}`
+- [x] `pip install astraeus-media[mcp]`
+- [x] `astraeus-media mcp serve --url {base_url} --api-key {key}`
 - [x] Tools: `list_assets`, `get_asset`, `search_assets`, `update_asset`, `delete_asset`, `get_iiif_url`
 
 ---
 
-## Phase 9 — mediakit CLI ✅
+## Phase 9 — astraeus-media CLI ✅
 
-- [x] `mediakit sync` — walk bucket, reconcile against catalog, insert missing records
-- [x] `mediakit gc` — remove orphaned assets with no references
-- [x] `mediakit export` — export catalog as CSV
+- [x] `astraeus-media sync` — walk bucket, reconcile against catalog, insert missing records
+- [x] `astraeus-media gc` — remove orphaned assets with no references
+- [x] `astraeus-media export` — export catalog as CSV
 
 ---
 
@@ -401,7 +401,7 @@ Together these establish Astraeus as a **governed data platform** — not just a
 ## Phase 12 — starlette-editor Phase 3 (media + custom editors) ✅
 
 - [x] `image_picker` widget: `buildImagePickerField` — thumbnail preview + Choose/Clear when `mediaBase` set; plain text input fallback
-- [x] `openImagePicker` → Mediakit picker iframe in modal overlay; `postMessage` integration (`mediakit:asset-selected`, `mediakit:picker-cancelled`)
+- [x] `openImagePicker` → astraeus-media picker iframe in modal overlay; `postMessage` integration (`astraeus-media:asset-selected`, `astraeus-media:picker-cancelled`)
 - [x] Richtext toolbar polish: `toggleList` replaces `wrapIn` for list nodes (toggle-to-unwrap); inline `code` mark button
 - [x] `<se-block-picker>` keyboard navigation (ArrowUp/Down/Enter/Escape) implemented in `buildBlockTypePicker`
 - [x] `core.js` extraction — deferred; `editor.js` is self-contained and the personal site does not yet need a custom editor overlay
@@ -418,7 +418,7 @@ Together these establish Astraeus as a **governed data platform** — not just a
 - [x] `starlette-cms`: OTel spans on `cms.documents.list/create/patch/delete/publish` (DB operations)
 - [x] `starlette-cms`: OTel span on `cms.webhooks.deliver` with `url` + `event` attributes
 - [x] `starlette-cms`: Silent swallows fixed — `body_parse_failed_in_row`, `meta_parse_failed_in_row`, `events_parse_failed`, `row_field_parse_failed`
-- [x] `mediakit`: OTel spans on `mediakit.processing.pipeline`, `mediakit.upload.confirm`, `mediakit.storage.prepare_upload`, `mediakit.storage.confirm_exists`
+- [x] `astraeus-media`: OTel spans on `astraeus_media.processing.pipeline`, `astraeus_media.upload.confirm`, `astraeus_media.storage.prepare_upload`, `astraeus_media.storage.confirm_exists`
 - [x] `starlette-cms-gateways`: OTel spans on `gateways.sync` (with `item_count`) and `gateways.client.upsert` (with `action`)
 - [x] `starlette-cms-gateways`: Silent swallow fixed — `bad_last_synced_timestamp`
 - [x] `starlette-editor`: `structlog>=24.0` + `opentelemetry-api>=1.25` added to deps; `NullHandler` installed
@@ -444,11 +444,11 @@ Together these establish Astraeus as a **governed data platform** — not just a
 
 **Not a numbered phase — runs in parallel once Phase 1 is stable.**
 
-- [ ] Deploy starlette-cms + mediakit backend (Fly.io or Railway)
+- [ ] Deploy starlette-cms + astraeus-media backend (Fly.io or Railway)
 - [ ] Add `[tool.uv.sources]` to joellithgow pointing at local packages during dev
 - [ ] Migrate Astro content from MDX files to CMS API fetches
 - [ ] Register Netlify build hook as a webhook
-- [ ] Configure Claude Code MCP servers (starlette-cms + mediakit)
+- [ ] Configure Claude Code MCP servers (starlette-cms + astraeus-media)
 - [ ] Blog post: "Building Astraeus and using it on my own site"
 
 ---

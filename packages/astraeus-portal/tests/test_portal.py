@@ -199,3 +199,61 @@ class TestKeyboardNav:
             resp = client.get("/")
             assert "keydown" in resp.text
             assert "cards[n - 1].click()" in resp.text
+
+
+class TestAppBar:
+    def _portal(self, **kwargs) -> Portal:
+        return Portal(
+            apps=[
+                PortalApp("Editor", "/editor/", "Edit content", "✏️"),
+                PortalApp("Media", "/media/admin", "Manage media", "🖼️"),
+            ],
+            title="Joel",
+            **kwargs,
+        )
+
+    def test_apps_json_lists_the_apps(self) -> None:
+        app = Starlette(routes=[Mount("/", app=self._portal().app)])
+        with TestClient(app) as client:
+            resp = client.get("/apps.json")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "title": "Joel",
+            "apps": [
+                {"name": "Editor", "path": "/editor/", "description": "Edit content", "icon": "✏️"},
+                {
+                    "name": "Media",
+                    "path": "/media/admin",
+                    "description": "Manage media",
+                    "icon": "🖼️",
+                },
+            ],
+        }
+
+    def test_apps_json_takes_the_portal_auth(self) -> None:
+        app = Starlette(routes=[Mount("/", app=self._portal(auth=lambda r: False).app)])
+        with TestClient(app) as client:
+            assert client.get("/apps.json").status_code == 401
+            # The script holds no data, so it is public.
+            assert client.get("/app-bar.js").status_code == 200
+
+    def test_app_bar_script_is_served(self) -> None:
+        app = Starlette(routes=[Mount("/admin", app=self._portal().app)])
+        with TestClient(app) as client:
+            resp = client.get("/admin/app-bar.js")
+        assert resp.status_code == 200
+        assert "javascript" in resp.headers["content-type"]
+        assert "apps.json" in resp.text
+
+    def test_routes_splice_in_ahead_of_a_catch_all(self) -> None:
+        """At the root beside a CMS mounted at "/": the portal answers its own
+        three paths and everything else reaches the CMS."""
+        from starlette.responses import PlainTextResponse
+
+        cms = Starlette(routes=[Mount("/", app=PlainTextResponse("cms"))])
+        portal = self._portal()
+        app = Starlette(routes=[*portal.routes, Mount("/", app=cms)])
+        with TestClient(app) as client:
+            assert "Editor" in client.get("/").text
+            assert client.get("/apps.json").json()["title"] == "Joel"
+            assert client.get("/api/documents").text == "cms"

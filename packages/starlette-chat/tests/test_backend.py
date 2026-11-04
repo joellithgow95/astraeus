@@ -27,11 +27,9 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from pydantic import PrivateAttr
-
 from starlette_chat.app import ChatAPI
 from starlette_chat.providers.base import BaseProvider
 from starlette_chat.tools import ToolDispatcher
-
 
 # ---------------------------------------------------------------------------
 # Mock provider helpers

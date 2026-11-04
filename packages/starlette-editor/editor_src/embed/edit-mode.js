@@ -492,7 +492,7 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
 
 function _openImageEditor(anchorEl, currentValue, CONFIG, onSave) {
   if (CONFIG.mediaBase) {
-    // Use mediakit iframe picker
+    // Use astraeus-media iframe picker
     const overlay = document.createElement('div')
     Object.assign(overlay.style, {
       position: 'fixed', inset: '0', zIndex: '99999',
@@ -524,11 +524,11 @@ function _openImageEditor(anchorEl, currentValue, CONFIG, onSave) {
       const data = event.data
       if (!data) return
       const type = typeof data === 'string' ? data : data.type
-      if (type === 'mediakit:asset-selected') {
+      if (type === 'astraeus-media:asset-selected') {
         const asset = typeof data === 'object' ? data : {}
         closeOverlay()
         onSave({ src: asset.url || asset.key || '', alt: asset.alt_text || '' })
-      } else if (type === 'mediakit:picker-cancelled') {
+      } else if (type === 'astraeus-media:picker-cancelled') {
         closeOverlay()
       }
     }

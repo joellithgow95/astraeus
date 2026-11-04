@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import pytest
-
-from starlette_chat.diff import diff_docs, node_size, _block_start_positions
-
+from starlette_chat.diff import _block_start_positions, diff_docs, node_size
 
 # ---------------------------------------------------------------------------
 # Helpers

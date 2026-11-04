@@ -14,7 +14,7 @@ Usage::
         gateways=gateway_admin,
         feedback=feedback_admin,
     )
-    # → Portal at / with cards for Editor, Media, Gateways, Feedback, Chat
+    # → Portal at / with cards for Editor, Media, Gateways, Feedback
     #   CMS at /cms, Editor at /editor, Media at /media, etc.
 
 All arguments are optional — include only the components you use.
@@ -108,6 +108,10 @@ def compose_app(
         cms_base=cms_mount,
     )
 
+    # Every admin page links home through the portal's app bar, unless the
+    # component was given a portal_url of its own.
+    _link_to_portal([editor, gateways, feedback, media, chat], portal_url=portal_mount)
+
     # 3. Build router mounts
     routes: list = []
 
@@ -181,7 +185,7 @@ def _build_portal_apps(
         apps.append(
             PortalApp(
                 name="Editor",
-                path=f"{editor_mount}/shell",
+                path=f"{editor_mount}/",
                 description="Create and edit content documents with the ProseMirror visual editor",
                 icon="✏️",
                 tags=["content"],
@@ -203,7 +207,7 @@ def _build_portal_apps(
         apps.append(
             PortalApp(
                 name="Gateways",
-                path=f"{gateways_mount}/shell",
+                path=f"{gateways_mount}/",
                 description="Sync data from external services into the CMS",
                 icon="🔄",
                 tags=["data"],
@@ -214,23 +218,15 @@ def _build_portal_apps(
         apps.append(
             PortalApp(
                 name="Feedback",
-                path=f"{feedback_mount}/shell",
+                path=f"{feedback_mount}/",
                 description="File and triage feedback and bug reports",
                 icon="🐛",
                 tags=["data"],
             )
         )
 
-    if chat:
-        apps.append(
-            PortalApp(
-                name="Chat",
-                path=f"{chat_mount}/shell",
-                description="AI-powered editing assistant with live collab",
-                icon="💬",
-                tags=["ai"],
-            )
-        )
+    # starlette-chat has no page of its own (it lives in the editor's chat
+    # panel), so it gets no card: one would be a dead link.
 
     if extras := (extra_apps or []):
         apps.extend(extras)
@@ -275,6 +271,20 @@ def _component_mounts(
         routes.append(Mount(feedback_mount, app=_get_app(feedback)))
 
     return routes
+
+
+def _link_to_portal(components: list[Any], *, portal_url: str) -> None:
+    """Set ``portal_url`` on each component that takes one and has none yet.
+
+    The editor, gateway and feedback admins carry it as an attribute; astraeus-media
+    carries it on its config.
+    """
+    for component in components:
+        if component is None:
+            continue
+        target = getattr(component, "config", component)
+        if hasattr(target, "portal_url") and target.portal_url is None:
+            target.portal_url = portal_url
 
 
 def _get_app(component: Any) -> Any:

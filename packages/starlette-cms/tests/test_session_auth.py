@@ -265,7 +265,6 @@ async def test_no_session_secret_routes_not_mounted() -> None:
 
 async def test_check_session_auth_valid_cookie(session_cms: CMS) -> None:
     """check_session_auth returns True for a valid cookie, False otherwise."""
-    from starlette.testclient import TestClient
 
     # We test the helper directly via a synthetic request-like object
     # by calling the endpoint and checking behaviour through the /me route.
@@ -304,3 +303,12 @@ async def test_check_session_auth_no_secret() -> None:
     request.cookies = {"cms_session": "sometoken"}
 
     assert check_session_auth(request, cms) is False
+
+
+@pytest.mark.asyncio
+async def test_login_page_escapes_the_next_param(session_client: httpx.AsyncClient) -> None:
+    """``next`` comes from the query string, so it cannot break out of its attribute."""
+    resp = await session_client.get('/api/auth/login?next=/x"><script>alert(1)</script>')
+    assert resp.status_code == 200
+    assert "<script>alert(1)</script>" not in resp.text
+    assert 'value="/x&quot;&gt;&lt;script&gt;' in resp.text

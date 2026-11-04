@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
+from starlette_cms.app_bar import app_bar_tag as _app_bar_tag
 
 if TYPE_CHECKING:
     from starlette_editor.app import Editor
@@ -66,7 +67,7 @@ def make_editor_routes(editor: Editor) -> list:
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CMS Editor</title>
   <link rel="stylesheet" href="{cms_mount}/static/tokens.css" />
-  <script src="{cms_mount}/static/theme.js"></script>
+  <script src="{cms_mount}/static/theme.js"></script>{_app_bar_tag(editor.portal_url)}
   <link rel="stylesheet" href="{mount}/static/editor.css?v={_CSS_HASH}" />
 </head>
 <body>
@@ -106,6 +107,8 @@ def make_editor_routes(editor: Editor) -> list:
         )
 
     routes: list = [
+        # /editor/ is the editor; /shell stays for bookmarks.
+        Route("/", endpoint=shell_endpoint, methods=["GET"]),
         Route("/shell", endpoint=shell_endpoint, methods=["GET"]),
         Route("/embed.js", endpoint=embed_js_endpoint, methods=["GET"]),
     ]

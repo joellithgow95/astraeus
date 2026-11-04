@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}{{ asset.filename }} — Media{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="{{ base }}/admin" class="back-link">← All Assets</a>
+    <h1>{{ asset.filename }}</h1>
+</div>
+
+<div class="detail-layout">
+    <div class="detail-preview">
+        <img
+            src="{{ detail_url(asset.key) }}"
+            alt="{{ asset.alt_text or asset.filename }}"
+            class="preview-image"
+            onerror="this.classList.add('img-error')"
+        >
+    </div>
+
+    <div class="detail-sidebar">
+        <section class="detail-section">
+            <h2>Metadata</h2>
+            <table class="metadata-table">
+                <tbody>
+                    <tr>
+                        <th>Key</th>
+                        <td><code>{{ asset.key }}</code></td>
+                    </tr>
+                    <tr>
+                        <th>Bucket</th>
+                        <td>{{ asset.bucket }}</td>
+                    </tr>
+                    <tr>
+                        <th>Type</th>
+                        <td>{{ asset.content_type }}</td>
+                    </tr>
+                    <tr>
+                        <th>Size</th>
+                        <td>{{ asset.size | filesizeformat }}</td>
+                    </tr>
+                    {% if asset.width and asset.height %}
+                    <tr>
+                        <th>Dimensions</th>
+                        <td>{{ asset.width }} × {{ asset.height }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <th>Created</th>
+                        <td>{{ asset.created_at }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="detail-section">
+            <h2>Edit</h2>
+            <form method="post" action="{{ base }}/admin/assets/{{ asset.key }}" class="edit-form">
+                <label class="form-label">
+                    Alt Text
+                    <input
+                        type="text"
+                        name="alt_text"
+                        value="{{ asset.alt_text or '' }}"
+                        placeholder="Describe this image"
+                        class="form-input"
+                    >
+                </label>
+                <label class="form-label">
+                    Tags
+                    <input
+                        type="text"
+                        name="tags"
+                        value="{{ (asset.tags | fromjson | join(', ')) if asset.tags else '' }}"
+                        placeholder="tag1, tag2, tag3"
+                        class="form-input"
+                    >
+                    <span class="form-hint">Comma-separated</span>
+                </label>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="detail-section detail-danger">
+            <h2>Danger Zone</h2>
+            <button
+                class="btn btn-danger"
+                onclick="deleteAsset('{{ asset.key }}')"
+                type="button"
+            >
+                Delete Asset
+            </button>
+        </section>
+    </div>
+</div>
+{% endblock %}

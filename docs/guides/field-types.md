@@ -78,7 +78,7 @@ Consumers (e.g. an Astro frontend) are responsible for rendering this to HTML. S
 
 ## ImageField
 
-Stores a media reference — either a URL or a Mediakit asset key.
+Stores a media reference — either a URL or a astraeus-media asset key.
 
 ```python
 @cms.block("hero")

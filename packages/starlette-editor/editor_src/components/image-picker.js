@@ -1,147 +1,194 @@
 /**
- * components/image-picker.js — Mediakit iframe picker widget.
+ * components/image-picker.js — Image fields, picked from the media library.
+ *
+ * Two shapes of field use it:
+ *
+ *   - an ImageField, whose value is a URL string;
+ *   - a JSONField whose schema has `src` and `alt` (a post's card image),
+ *     whose value is an object. Picking sets both, and keeps any other keys
+ *     (type, poster, link) as they were.
+ *
+ * The picker is the shell's own (media/media-picker.js), not a page in an
+ * iframe. Without a media library the field is a plain URL input.
  */
 
 import { el } from '../utils.js'
-import { showToast } from './toast.js'
-
-const CONFIG = window.__EDITOR_CONFIG__ || { cmsBase: '', apiKey: null, mountPath: '/editor' };
-
-/** Tracks which field the open picker modal is for. */
-let currentPickerField = null;
-
-/** Close and remove the picker modal. */
-function closePickerModal() {
-  const modal = document.querySelector('.picker-modal');
-  if (modal) modal.remove();
-  window.removeEventListener('message', onPickerMessage);
-  currentPickerField = null;
-}
+import { icon } from '../icons.js'
+import { embedUrl, hasMedia, iiifUrl, keyFromUrl } from '../media/media-api.js'
+import { openMediaPicker } from '../media/media-picker.js'
 
 /**
- * Handle postMessage events from the Mediakit picker iframe.
+ * A small preview for *src*: the library's 800-wide rendition when the URL is
+ * one of ours (already cut, so it loads at once), else the URL itself.
  *
- * @param {MessageEvent} event
+ * @param {string} src
+ * @returns {string}
  */
-function onPickerMessage(event) {
-  const data = event.data;
-  if (!data) return;
-  const type = typeof data === 'string' ? data : data.type;
-  if (type === 'mediakit:asset-selected') {
-    const value = (typeof data === 'object' ? (data.key || data.url) : null) || '';
-    if (currentPickerField) {
-      // Dispatch a custom DOM event so callers can react without tight coupling
-      document.dispatchEvent(new CustomEvent('editor:image-selected', {
-        detail: { fieldName: currentPickerField, value },
-      }));
-      // Update the preview thumbnail synchronously (if it's visible)
-      const preview = document.getElementById(`img-preview-${currentPickerField}`);
-      if (preview && value) { preview.src = value; preview.style.display = ''; }
-      else if (preview) preview.style.display = 'none';
-      const valEl = document.getElementById(`img-val-${currentPickerField}`);
-      if (valEl) valEl.value = value;
-    }
-    closePickerModal();
-  } else if (type === 'mediakit:picker-cancelled') {
-    closePickerModal();
-  }
+export function previewSrc(src) {
+  const key = keyFromUrl(src)
+  return key ? iiifUrl(key) : src
+}
+
+function buildPreview(src, onPick) {
+  const preview = el('button', {
+    type: 'button',
+    class: `image-picker__preview${src ? '' : ' is-empty'}`,
+    title: hasMedia() ? 'Choose from the media library' : '',
+    'aria-label': src ? 'Change image' : 'Choose an image',
+    onclick: hasMedia() ? onPick : null,
+    disabled: hasMedia() ? null : 'disabled',
+  })
+  if (src) preview.appendChild(el('img', { src: previewSrc(src), alt: '', decoding: 'async' }))
+  else preview.appendChild(icon('image', { size: 24 }))
+  return preview
 }
 
 /**
- * Open the Mediakit picker iframe in a modal overlay.
- *
- * @param {string} fieldName
- */
-export function openImagePicker(fieldName) {
-  currentPickerField = fieldName;
-  const iframeSrc = `${CONFIG.mediaBase}/admin?picker=1`;
-
-  const modal = el('div', { class: 'picker-modal' },
-    el('div', { class: 'picker-modal__inner' },
-      el('button', {
-        class: 'picker-modal__close btn btn--ghost',
-        title: 'Close',
-        onclick: closePickerModal,
-      }, '✕'),
-      el('iframe', { class: 'picker-modal__iframe', src: iframeSrc })
-    )
-  );
-
-  document.body.appendChild(modal);
-  window.addEventListener('message', onPickerMessage);
-}
-
-/**
- * Build the image picker widget for an ImageField.
- * Shows an iframe-based Mediakit picker when media_base is configured,
- * otherwise falls back to a plain text input.
+ * The widget for an ImageField (a URL string).
  *
  * @param {string} fieldName
  * @param {string} currentValue
- * @param {function} onFieldChange
+ * @param {(name: string, value: string) => void} onFieldChange
  * @returns {HTMLElement}
  */
 export function buildImagePickerField(fieldName, currentValue, onFieldChange) {
-  const wrap = el('div', { class: 'image-picker' });
+  let value = currentValue || ''
+  const wrap = el('div', { class: 'image-picker' })
 
-  if (CONFIG.mediaBase) {
-    // Thumbnail preview
-    const img = el('img', {
-      class: 'image-picker__preview',
-      id: `img-preview-${fieldName}`,
-      src: currentValue || '',
-      alt: '',
-    });
-    img.style.display = currentValue ? '' : 'none';
+  const input = el('input', {
+    class: 'field-input',
+    id: `field-${fieldName}`,
+    type: 'url',
+    placeholder: 'https://…',
+    value,
+    oninput: e => set(e.target.value, { fromInput: true }),
+  })
 
-    // Hidden text input keeps the value in sync
-    const hiddenInput = el('input', {
-      type: 'hidden',
-      id: `img-val-${fieldName}`,
-      value: currentValue || '',
-    });
-
-    // Listen for picker selection event to update field
-    document.addEventListener('editor:image-selected', e => {
-      if (e.detail.fieldName === fieldName) {
-        onFieldChange(fieldName, e.detail.value);
-      }
-    }, { once: true });
-
-    const chooseBtn = el('button', {
-      class: 'btn btn--ghost',
-      onclick: () => openImagePicker(fieldName),
-    }, 'Choose Image');
-
-    const clearBtn = el('button', {
-      class: 'btn btn--ghost',
-      style: currentValue ? '' : 'display:none',
-      onclick: () => {
-        onFieldChange(fieldName, '');
-        img.src = '';
-        img.style.display = 'none';
-        hiddenInput.value = '';
-        clearBtn.style.display = 'none';
-      },
-    }, 'Clear');
-
-    wrap.appendChild(img);
-    wrap.appendChild(hiddenInput);
-    wrap.appendChild(chooseBtn);
-    wrap.appendChild(clearBtn);
-  } else {
-    // Fallback — plain text input
-    const input = el('input', {
-      class: 'field-input',
-      id: `field-${fieldName}`,
-      type: 'text',
-      placeholder: 'https://…',
-      value: currentValue || '',
-      oninput: e => onFieldChange(fieldName, e.target.value),
-    });
-    wrap.appendChild(input);
-    wrap.appendChild(el('span', { class: 'field-help' }, '(configure media_base on Editor to enable image picker)'));
+  function set(next, { fromInput = false } = {}) {
+    value = next
+    if (!fromInput) input.value = next
+    onFieldChange(fieldName, next)
+    draw()
   }
 
-  return wrap;
+  async function pick() {
+    const asset = await openMediaPicker()
+    if (asset) set(embedUrl(asset.key))
+  }
+
+  // The input stays put while the preview and buttons are redrawn, so typing
+  // in it keeps focus.
+  const previewSlot = el('div', { class: 'image-picker__preview-slot' })
+  const actionsSlot = el('div', { class: 'image-picker__actions-slot' })
+  wrap.append(previewSlot, el('div', { class: 'image-picker__fields' }, input, actionsSlot))
+
+  function draw() {
+    previewSlot.replaceChildren(buildPreview(value, pick))
+    actionsSlot.replaceChildren(buildButtons(value, pick, () => set('')))
+  }
+
+  draw()
+  return wrap
+}
+
+function buildButtons(value, pick, clear) {
+  return el('div', { class: 'image-picker__actions' },
+    hasMedia()
+      ? el('button', { type: 'button', class: 'btn btn--ghost btn--sm', onclick: pick },
+          value ? 'Change image' : 'Choose image')
+      : null,
+    value ? el('button', { type: 'button', class: 'btn btn--ghost btn--sm', onclick: clear }, 'Remove') : null,
+  )
+}
+
+/**
+ * True when a JSONField's schema hint describes an image object ({src, alt}).
+ *
+ * @param {object} meta — the field's cms:field_meta entry
+ * @returns {boolean}
+ */
+export function isImageObjectMeta(meta) {
+  const props = meta?.schema?.properties
+  return Boolean(props && props.src && props.alt)
+}
+
+/**
+ * The widget for an image object ({src, alt, …}).
+ *
+ * Picking an image sets src, and fills alt from the library's alt text when
+ * the field's alt is empty or was the old image's. Clearing src and alt sets
+ * the field to null, which an optional field wants rather than {}.
+ *
+ * @param {string} fieldName
+ * @param {object|null} currentValue
+ * @param {(name: string, value: object|null) => void} onFieldChange
+ * @returns {HTMLElement}
+ */
+export function buildImageObjectField(fieldName, currentValue, onFieldChange) {
+  let value = currentValue && typeof currentValue === 'object' ? { ...currentValue } : {}
+  let altFromLibrary = null
+  const wrap = el('div', { class: 'image-picker image-picker--object' })
+
+  const srcInput = el('input', {
+    class: 'field-input',
+    id: `field-${fieldName}`,
+    type: 'url',
+    placeholder: 'Image URL',
+    'aria-label': 'Image URL',
+    value: value.src || '',
+    oninput: e => update({ src: e.target.value }, 'src'),
+  })
+  const altInput = el('input', {
+    class: 'field-input',
+    id: `field-${fieldName}-alt`,
+    type: 'text',
+    placeholder: 'Alt text: what the image shows',
+    'aria-label': 'Alt text',
+    value: value.alt || '',
+    oninput: e => { altFromLibrary = null; update({ alt: e.target.value }, 'alt') },
+  })
+
+  function emit() {
+    const empty = !value.src && !value.alt && Object.keys(value).every(k => k === 'src' || k === 'alt')
+    onFieldChange(fieldName, empty ? null : { ...value })
+  }
+
+  function update(patch, typedIn) {
+    value = { ...value, ...patch }
+    if (typedIn !== 'src') srcInput.value = value.src || ''
+    if (typedIn !== 'alt') altInput.value = value.alt || ''
+    emit()
+    draw()
+  }
+
+  async function pick() {
+    const asset = await openMediaPicker()
+    if (!asset) return
+    const patch = { src: embedUrl(asset.key) }
+    // Keep alt someone wrote; replace one that came from the previous pick.
+    if (!value.alt || value.alt === altFromLibrary) {
+      patch.alt = asset.alt_text || ''
+      altFromLibrary = patch.alt
+    }
+    update(patch)
+  }
+
+  function clear() {
+    const { src: _src, alt: _alt, ...rest } = value
+    value = rest
+    altFromLibrary = null
+    update({})
+  }
+
+  const previewSlot = el('div', { class: 'image-picker__preview-slot' })
+  const actionsSlot = el('div', { class: 'image-picker__actions-slot' })
+  wrap.append(previewSlot, el('div', { class: 'image-picker__fields' }, srcInput, altInput, actionsSlot))
+
+  function draw() {
+    previewSlot.replaceChildren(buildPreview(value.src, pick))
+    actionsSlot.replaceChildren(buildButtons(value.src, pick, clear))
+  }
+
+  draw()
+  return wrap
 }

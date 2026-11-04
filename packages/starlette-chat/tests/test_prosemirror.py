@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import pytest
-
 from starlette_chat.prosemirror import markdown_to_pm, pm_to_text
-
 
 # ---------------------------------------------------------------------------
 # markdown_to_pm

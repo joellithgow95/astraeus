@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from starlette_chat.store import SQLiteSessionStore
 
 
