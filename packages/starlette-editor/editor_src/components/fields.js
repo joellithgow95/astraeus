@@ -7,6 +7,7 @@ import { buildDocumentRefList } from './document-ref-list.js'
 import { buildDocumentRefPicker } from './document-ref-picker.js'
 import { buildLinksInput } from './links-input.js'
 import { buildTagInput, buildTagsInput } from './tags-input.js'
+import { getFieldWidget } from '../field-widgets.js'
 import { autoGrow, singleLine } from './autogrow.js'
 import { buildImageObjectField, isImageObjectMeta } from './image-picker.js'
 
@@ -16,11 +17,14 @@ import { buildImageObjectField, isImageObjectMeta } from './image-picker.js'
  * Returns one of: 'prosemirror' | 'textarea' | 'input' | 'number'
  *                 | 'boolean' | 'select' | 'json' | 'block_canvas'
  *                 | 'image_picker' | 'image_object' | 'document_ref' | 'document_ref_list'
- *                 | 'tags' | 'tag' | 'date' | 'links'
+ *                 | 'tags' | 'tag' | 'date' | 'links' | 'registry'
  *
- * Explicit field_type from cms:field_meta takes precedence over all
- * heuristics. Heuristic fallbacks are kept for schemas that pre-date
- * the field_type tag or for fields with no explicit type annotation.
+ * A field_type with a registered widget (field-widgets.js — ADR 020) takes
+ * precedence over everything else, including the built-in field_type table
+ * below: a plugin field type is never shadowed by a same-named heuristic.
+ * Otherwise, explicit field_type from cms:field_meta takes precedence over
+ * heuristics. Heuristic fallbacks are kept for schemas that pre-date the
+ * field_type tag or for fields with no explicit type annotation.
  *
  * @param {string} name   — field name
  * @param {object} prop   — JSON Schema property definition
@@ -28,8 +32,10 @@ import { buildImageObjectField, isImageObjectMeta } from './image-picker.js'
  * @returns {string}
  */
 export function fieldWidget(name, prop, meta) {
-  // --- Authoritative field_type from cms:field_meta (set by Python field classes) ---
   const ft = meta?.field_type;
+  if (ft && getFieldWidget(ft)) return 'registry';
+
+  // --- Authoritative field_type from cms:field_meta (set by Python field classes) ---
   if (ft === 'rich_text')    return 'prosemirror';
   if (ft === 'block_list')   return 'block_canvas';
   if (ft === 'block')        return 'block_canvas';  // single nested block — same canvas, 1 card
@@ -188,6 +194,18 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
   const currentVal = state.formData[name] ?? getDefaultValue(prop, meta);
 
   switch (widget) {
+    case 'registry': {
+      const factory = getFieldWidget(meta.field_type);
+      const host = el('div', { class: 'field-registry-widget' });
+      group.appendChild(host);
+      factory(currentVal, {
+        mode: 'inline',
+        container: host,
+        onSave: newValue => onFieldChange(name, newValue),
+      });
+      break;
+    }
+
     case 'block_canvas':
       group.appendChild(buildBlockCanvas(name, prop, meta, state.schema?.[state.activeType]?.schema, currentVal));
       break;

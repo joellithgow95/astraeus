@@ -4,10 +4,12 @@ Tests for field_meta() on all field types, including block container fields.
 
 from __future__ import annotations
 
+from starlette_cms.drawing import Doodle
 from starlette_cms.fields import (
     BlockField,
     BoolField,
     DocumentRef,
+    DoodleField,
     ImageField,
     JSONField,
     ListField,
@@ -17,7 +19,7 @@ from starlette_cms.fields import (
     TextField,
     URLField,
 )
-
+from starlette_cms.model_builder import _make_field
 
 # ---------------------------------------------------------------------------
 # ListField
@@ -129,3 +131,31 @@ def test_json_field_no_schema():
 def test_json_field_with_schema():
     meta = JSONField(schema={"type": "object"}).field_meta()
     assert meta["schema"] == {"type": "object"}
+
+
+# ---------------------------------------------------------------------------
+# DoodleField
+# ---------------------------------------------------------------------------
+
+
+def test_doodle_field_meta_has_field_type_doodles():
+    meta = DoodleField().field_meta()
+    assert meta["field_type"] == "doodles"
+
+
+def test_doodle_field_meta_passes_through_base_attrs():
+    meta = DoodleField(label="Doodles", help_text="Draw something").field_meta()
+    assert meta["label"] == "Doodles"
+    assert meta["help_text"] == "Draw something"
+
+
+def test_doodle_field_optional_defaults_to_none():
+    py_type, info = _make_field(list, DoodleField(), {})
+    assert py_type == (list[Doodle] | None)
+    assert info.default is None
+
+
+def test_doodle_field_required_defaults_to_empty_list():
+    py_type, info = _make_field(list, DoodleField(required=True), {})
+    assert py_type == list[Doodle]
+    assert info.default_factory is list

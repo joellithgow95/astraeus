@@ -2685,4 +2685,142 @@ body.is-resizing * {
     border: none;
   }
   .media-picker .media-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* ── Drawing pad (DrawingField, components/drawing-pad.js) ───────────────── */
+
+.drawing-pad {
+  display: grid;
+  gap: var(--space-3);
+}
+
+@media (min-width: 720px) {
+  .drawing-pad {
+    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+/* Paper stays light in dark mode: the shape's colours are its own. */
+.drawing-pad__sheet {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 360px;
+  background: #fbfaf7;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  touch-action: none;
+  cursor: crosshair;
+  overflow: hidden;
+}
+
+.drawing-pad__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.drawing-pad__axis {
+  stroke: #9aa1a9;
+  stroke-width: 0.3;
+  stroke-dasharray: 1.5 1.5;
+}
+
+.drawing-pad__hint {
+  position: absolute;
+  inset: auto var(--space-3) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: #6b7078;
+  text-align: center;
+  pointer-events: none;
+}
+
+.drawing-pad__controls {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.drawing-pad__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.drawing-pad__label {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.drawing-pad__seg {
+  display: flex;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.drawing-pad__seg button {
+  flex: 1;
+  min-height: var(--target-min);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.drawing-pad__seg button[aria-pressed="true"] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--border-default);
+}
+
+.drawing-pad__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.drawing-pad__sw,
+.drawing-pad__custom {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.drawing-pad__sw[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+.drawing-pad__sw--none {
+  background: linear-gradient(135deg, transparent 45%, var(--red) 45%, var(--red) 55%, transparent 55%), #fff;
+}
+
+.drawing-pad__custom {
+  overflow: hidden;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+}
+
+.drawing-pad__custom::-webkit-color-swatch-wrapper { padding: 0; }
+.drawing-pad__custom::-webkit-color-swatch { border: none; opacity: 0; }
+
+.drawing-pad__width {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.drawing-pad__width-out {
+  font-family: var(--font-mono);
 }
