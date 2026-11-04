@@ -23,7 +23,7 @@ fields with no annotation.
 |---|---|---|---|
 | `prosemirror` | `rich_text` | `duplicated` — `prosemirror/mount.js` (shell) vs `embed/prosemirror-embed.js` | Toolbar overflow at 44px targets; selection handles; keyboard-occlusion on focus |
 | `block_canvas` | `block_list`, `block` | `shared`, shell-only consumer | Replace drag-and-drop with numbered rows + move controls |
-| `image_picker` | `image` | `shared`, both consume | Modal → full-screen sheet; mediakit iframe is the weak point |
+| `image_picker` | `image` | `shared`, both consume | Modal → full-screen sheet; astraeus-media iframe is the weak point |
 | `select` | `select` | `shell-only` | 16px floor; native select is correct on mobile, keep it |
 | `number` | `number` | `shell-only` | 16px floor; `inputmode="decimal"` |
 | `boolean` | `boolean` | `shell-only` | Toggle target to 44px |
@@ -123,7 +123,7 @@ Every widget in this inventory:
   menu hides formatting behind a tap while the keyboard is already up.
 - **`document_ref` picker.** Depends on the merged panel's document-row rendering; sequence it
   after the merge.
-- **Mediakit admin inside the image picker.** Iframing a separate Bootstrap app is the worst
+- **astraeus-media admin inside the image picker.** Iframing a separate Bootstrap app is the worst
   remaining small-screen surface. Token adoption improves the look but not the interaction model;
-  a native picker view against the mediakit API is the real fix, and is out of scope for this
+  a native picker view against the astraeus-media API is the real fix, and is out of scope for this
   round.

@@ -70,3 +70,18 @@ async def test_shell_redirects_when_auth_fails(tmp_path: Path):
 
     assert resp.status_code == 302
     assert resp.headers["location"].startswith("/api/auth/login?next=")
+
+
+async def test_shell_is_also_at_the_mount_root(feedback_app):
+    resp = await feedback_app["client"].get("/feedback/")
+    assert resp.status_code == 200
+    assert "var CONFIG" in resp.text
+
+
+async def test_shell_loads_the_app_bar_only_when_given_a_portal(feedback_app):
+    resp = await feedback_app["client"].get("/feedback/shell")
+    assert "app-bar.js" not in resp.text
+
+    feedback_app["admin"].portal_url = "/"
+    resp = await feedback_app["client"].get("/feedback/shell")
+    assert '<script src="/app-bar.js" defer></script>' in resp.text

@@ -65,7 +65,7 @@ class TestComposeApp:
         with TestClient(app) as client:
             resp = client.get("/")
             assert "Editor" in resp.text
-            assert "/editor/shell" in resp.text
+            assert 'href="/editor/"' in resp.text
 
     def test_compose_full_stack(self) -> None:
         """All components appear in the portal and are mounted."""
@@ -94,7 +94,8 @@ class TestComposeApp:
             assert "Media" in resp.text
             assert "Gateways" in resp.text
             assert "Feedback" in resp.text
-            assert "Chat" in resp.text
+            # Chat has no page of its own, so no card (it is still mounted).
+            assert "Chat" not in resp.text
             assert "docs.example.com" in resp.text
             # All mounts work
             for path in ["/cms/", "/editor/", "/media/", "/chat/", "/gateways/", "/feedback/"]:
@@ -161,7 +162,7 @@ class TestComposeApp:
         with TestClient(app) as client:
             resp = client.get("/")
             assert "/admin/cms/api/documents" in resp.text
-            assert "/admin/editor/shell" in resp.text
+            assert 'href="/admin/editor/"' in resp.text
             # Custom mounts work
             assert client.get("/admin/cms/").status_code == 200
             assert client.get("/admin/editor/").status_code == 200
@@ -179,3 +180,27 @@ def _make_minimal_app(body: str = "ok"):
     from starlette.routing import Route
 
     return Starlette(routes=[Route("/", endpoint=lambda r: PlainTextResponse(body))])
+
+
+class TestComposeLinksToPortal:
+    def test_sets_portal_url_on_components_that_take_one(self) -> None:
+        """Every admin page gets the app bar: compose_app hands each its portal_url."""
+        from types import SimpleNamespace
+
+        from astraeus_portal.compose import compose_app
+        from starlette.applications import Starlette
+
+        class Admin:
+            def __init__(self, portal_url: str | None = None) -> None:
+                self.app = Starlette()
+                self.portal_url = portal_url
+
+        editor = Admin()
+        gateways = Admin(portal_url="/elsewhere")
+        media = SimpleNamespace(app=Starlette(), config=SimpleNamespace(portal_url=None))
+
+        compose_app(editor=editor, gateways=gateways, media=media, portal_mount="/admin")
+
+        assert editor.portal_url == "/admin"
+        assert gateways.portal_url == "/elsewhere"  # one it was given is kept
+        assert media.config.portal_url == "/admin"

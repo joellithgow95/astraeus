@@ -30,11 +30,13 @@ class Editor:
         clicking the button POSTs to ``endpoint`` on the CMS. Injected into the
         shell config and rendered in the floating toolbar.
     :param cms: The CMS instance to extend. Extension routes are registered at init time.
-    :param media_base: Mount path of Mediakit — enables the image picker in ImageField editing.
+    :param media_base: Mount path of astraeus-media — enables the image picker in ImageField editing.
     :param mount_path: The path this editor is mounted at.
     :param auth: Optional auth callable (request) -> bool protecting /shell.
     :param login_path: Where to redirect unauthenticated /shell visitors when
         an auth guard is set (defaults to the CMS session-login route).
+    :param portal_url: Where the Astraeus portal is mounted (e.g. ``"/"``). Set, the
+        page loads the portal's app bar, which links home and to the other apps.
     """
 
     def __init__(
@@ -46,6 +48,7 @@ class Editor:
         mount_path: str = "/editor",
         auth: Callable | None = None,
         login_path: str = "/api/auth/login",
+        portal_url: str | None = None,
     ) -> None:
         self.cms = cms
         self.actions = actions or []
@@ -53,6 +56,7 @@ class Editor:
         self.mount_path = mount_path
         self.auth = auth
         self.login_path = login_path
+        self.portal_url = portal_url
 
         # Activate ProseMirror bridge and register /api/editor-schema on the CMS
         self.bridge = ProseMirrorBridge(cms.registry)

@@ -26,7 +26,7 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SURFACES = ['standard', 'embed']
 
 /** Shared directories, plus the root modules, which may not import a surface. */
-const SHARED_DIRS = ['components', 'prosemirror']
+const SHARED_DIRS = ['components', 'prosemirror', 'media']
 
 /** @returns {string[]} absolute paths of .js files under `dir`, recursively */
 function jsFiles(dir) {

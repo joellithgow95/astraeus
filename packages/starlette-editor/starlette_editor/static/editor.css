@@ -21,8 +21,15 @@
   --keyboard-inset: 0px;
 }
 
-html, body {
+html {
   height: 100%;
+}
+
+body {
+  height: calc(100% - var(--astraeus-bar-h, 0px));
+}
+
+html, body {
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -35,7 +42,8 @@ html, body {
 /* ---------- App Shell ---------- */
 #app {
   display: flex;
-  height: 100dvh;
+  /* --astraeus-bar-h: the portal's app bar above the shell, when it is loaded. */
+  height: calc(100dvh - var(--astraeus-bar-h, 0px));
   overflow: hidden;
 }
 
@@ -1757,59 +1765,58 @@ details.doc-meta[open] .doc-meta__summary::before {
   color: var(--text-primary);
 }
 
-/* ---------- Image Picker ---------- */
+/* ---------- Image fields ---------- */
 .image-picker {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
-  flex-wrap: wrap;
 }
 
 .image-picker__preview {
-  width: 80px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
+  width: 120px;
+  aspect-ratio: 4 / 3;
   flex-shrink: 0;
-  background: var(--bg-elevated);
-}
-
-/* ---------- Picker Modal (image / media) ---------- */
-.picker-modal {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay);
-  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: fade-in 100ms ease;
-}
-
-.picker-modal__inner {
-  position: relative;
-  width: min(900px, 90vw);
-  height: min(680px, 90vh);
-  background: var(--bg-surface);
-  border-radius: var(--radius-lg);
+  padding: 0;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
 }
 
-.picker-modal__iframe {
+.image-picker__preview:disabled { cursor: default; }
+.image-picker__preview.is-empty { border-style: dashed; }
+.image-picker__preview:not(:disabled):hover { border-color: var(--border-strong); color: var(--text-secondary); }
+.image-picker__preview:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+
+.image-picker__preview img {
   width: 100%;
   height: 100%;
-  border: none;
+  object-fit: cover;
   display: block;
 }
 
-.picker-modal__close {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  z-index: 10;
-  font-size: var(--font-size-md);
+.image-picker__fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.image-picker__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+@media (max-width: 480px) {
+  .image-picker { flex-direction: column; }
+  .image-picker__preview { width: 100%; max-width: 320px; }
+  .image-picker__fields { width: 100%; }
 }
 
 /* ---------- ProseMirror toolbar monospace button ---------- */
@@ -2218,7 +2225,7 @@ body.is-resizing * {
   .sidebar-types,
   .sidebar-docs {
     position: fixed;
-    top: 0;
+    top: var(--astraeus-bar-h, 0px);
     bottom: 0;
     left: 0;
     width: 100%;
@@ -2426,6 +2433,258 @@ body.is-resizing * {
     padding-bottom: env(safe-area-inset-bottom) !important;
   }
 }
+
+/* ---------- Media ----------
+   The library inside the shell (media/media-library.js): Media in the type
+   column, the grid in the document column, the chosen image in the main pane.
+   #app.is-media swaps the document parts out. */
+.sidebar-types__media {
+  flex-shrink: 0;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sidebar-docs__media,
+#media-area,
+.sidebar-docs__media-tools {
+  display: none;
+}
+
+#app.is-media .sidebar-docs__media {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#app.is-media #media-area { display: block; }
+#app.is-media .sidebar-docs__media-tools { display: inline-flex; }
+
+#app.is-media #doc-search,
+#app.is-media #doc-list,
+#app.is-media #doc-new-btn,
+#app.is-media #pending-area,
+#app.is-media #form-area,
+#app.is-media #dirty-dot,
+#app.is-media #save-status,
+#app.is-media .editor-header__actions {
+  display: none !important;
+}
+
+.media-list__grid {
+  padding: var(--space-3);
+}
+
+.is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--space-2);
+}
+
+.media-tile {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  cursor: pointer;
+}
+
+.media-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.media-tile:hover { border-color: var(--border-strong); }
+.media-tile:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+.media-tile.is-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+
+.media-tile__flag {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.media-tile--pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  cursor: default;
+  border-style: dashed;
+}
+
+.media-tile__status {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.media-grid__empty {
+  grid-column: 1 / -1;
+  padding: var(--space-6) var(--space-2);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.media-upload { display: inline-flex; }
+.media-upload .btn { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+.media-empty {
+  max-width: 420px;
+  margin: var(--space-8) auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.media-empty p { margin: 0; }
+.media-empty__icon { color: var(--text-muted); }
+.media-empty__hint { color: var(--text-muted); }
+
+.media-detail {
+  max-width: 960px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.media-detail__preview {
+  margin: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.media-detail__preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.media-detail__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.media-detail__fields .field-group { margin: 0; }
+
+.media-detail__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.media-detail__name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.media-detail__meta {
+  margin: calc(var(--space-3) * -1) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.media-detail__url-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.media-detail__url {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.media-detail__danger {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 900px) {
+  .media-detail { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+}
+
+/* The picker an image field opens: the same grid, in a dialog. */
+.media-picker {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, calc(100vw - var(--space-8)));
+  height: min(680px, calc(100dvh - var(--space-8)));
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.media-picker__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) 0 var(--space-4);
+}
+
+.media-picker__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.media-picker__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.media-picker .media-grid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
+@media (max-width: 640px) {
+  .media-picker {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border: none;
+  }
+  .media-picker .media-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 /* ── Drawing pad (DrawingField, components/drawing-pad.js) ───────────────── */
 

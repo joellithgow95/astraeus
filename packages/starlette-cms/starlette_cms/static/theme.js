@@ -10,7 +10,7 @@
  * localStorage under "astraeus-theme". Every admin surface is served from the
  * same origin, so a choice made in the editor holds in the gateways admin,
  * the portal and the rest. A page that pins its own theme in markup
- * (mediakit pins light) is left alone.
+ * (astraeus-media pins light) is left alone.
  */
 (function () {
   var root = document.documentElement;

@@ -594,3 +594,17 @@ async def test_gateway_construction_passes_job_store(mock_disc, admin_app):
     assert constructed_kwargs.get("job_store_key") == "admin-test", (
         "job_store_key must be the entry-point name"
     )
+
+
+async def test_shell_is_also_at_the_mount_root(admin_app):
+    resp = await admin_app["client"].get("/gateways/")
+    assert resp.status_code == 200
+    assert "Gateway Admin" in resp.text
+
+
+async def test_shell_loads_the_app_bar_when_given_a_portal(admin_app):
+    assert "app-bar.js" not in (await admin_app["client"].get("/gateways/shell")).text
+
+    admin_app["admin"].portal_url = "/admin/"
+    resp = await admin_app["client"].get("/gateways/shell")
+    assert '<script src="/admin/app-bar.js" defer></script>' in resp.text

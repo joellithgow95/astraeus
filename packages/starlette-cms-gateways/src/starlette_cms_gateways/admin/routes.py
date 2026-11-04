@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
+from starlette_cms.app_bar import app_bar_tag as _app_bar_tag
 
 if TYPE_CHECKING:
     from starlette_cms_gateways.admin.app import GatewayAdmin
@@ -71,7 +72,7 @@ def make_admin_routes(admin: GatewayAdmin) -> list:
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gateway Admin</title>
   <link rel="stylesheet" href="{cms_base}/static/tokens.css" />
-  <script src="{cms_base}/static/theme.js"></script>
+  <script src="{cms_base}/static/theme.js"></script>{_app_bar_tag(admin.portal_url)}
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -310,6 +311,7 @@ def make_admin_routes(admin: GatewayAdmin) -> list:
         return HTMLResponse(html)
 
     routes: list = [
+        Route("/", endpoint=shell_endpoint, methods=["GET"]),
         Route("/shell", endpoint=shell_endpoint, methods=["GET"]),
     ]
 

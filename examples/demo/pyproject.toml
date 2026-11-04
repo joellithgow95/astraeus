@@ -6,11 +6,11 @@ requires-python = ">=3.12"
 dependencies = [
     "starlette-cms",
     "starlette-editor",
-    "mediakit[admin]",
+    "astraeus-media[admin]",
     "uvicorn>=0.30",
 ]
 
 [tool.uv.sources]
 starlette-cms = { workspace = true }
 starlette-editor = { workspace = true }
-mediakit = { workspace = true }
+astraeus-media = { workspace = true }

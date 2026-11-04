@@ -101,7 +101,7 @@ connection is opened server-side by `ToolDispatcher`, not by the browser.
 **Collab WS** (`{collab_ws_base}/api/documents/{doc_id}/collab`):
 - `edit_document` — builds steps and submits via WS (see collab WS pattern above)
 
-`search_media` calls a mediakit HTTP endpoint if configured; it falls back gracefully if the
+`search_media` calls a astraeus-media HTTP endpoint if configured; it falls back gracefully if the
 media endpoint is not reachable.
 
 ---

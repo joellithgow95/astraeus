@@ -6,10 +6,9 @@ Usage::
     from astraeus_portal import Portal, PortalApp
 
     portal = Portal(apps=[
-        PortalApp("Editor",   "/editor/shell",   "Create and edit content",  "✏️"),
+        PortalApp("Editor",   "/editor/",       "Create and edit content",  "✏️"),
         PortalApp("Media",    "/media/admin",    "Browse and manage media",  "🖼️"),
-        PortalApp("Gateways", "/gateways/shell",  "Sync external data",      "🔄"),
-        PortalApp("Chat",     "/chat/shell",     "AI editing assistant",    "💬"),
+        PortalApp("Gateways", "/gateways/",     "Sync external data",      "🔄"),
     ])
 
     app = Starlette(routes=[Mount("/", app=portal.app)])
@@ -37,7 +36,7 @@ class PortalApp:
     """Descriptor for a single app entry on the portal page.
 
     :param name: Human-readable app name (e.g. "Editor", "Media").
-    :param path: URL path to the app's shell page (e.g. "/editor/shell").
+    :param path: URL path to the app's shell page (e.g. "/editor/").
     :param description: One-line description shown on the portal card.
     :param icon: Optional emoji or icon character shown beside the name.
     :param tags: Optional list of tag strings for filtering/categorisation.
@@ -112,7 +111,18 @@ class Portal:
             self._app = self._build_app()
         return self._app
 
-    def _build_app(self) -> Starlette:
+    @property
+    def routes(self) -> list:
+        """The portal's routes (``/``, ``/apps.json``, ``/app-bar.js``), for a host
+        that puts the portal at its root beside a CMS that also lives there::
+
+            app = Starlette(routes=[*portal.routes, Mount("/", app=cms.app)])
+
+        A ``Mount("/", app=portal.app)`` would answer every path first.
+        """
         from astraeus_portal.routes import make_portal_routes
 
-        return Starlette(routes=make_portal_routes(self))
+        return make_portal_routes(self)
+
+    def _build_app(self) -> Starlette:
+        return Starlette(routes=self.routes)

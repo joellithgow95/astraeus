@@ -21,6 +21,7 @@ import { ChangesetPanel } from './components/changeset-panel.js'
 import { getActiveChangesetId, onActiveChangesetChange } from './changeset-store.js'
 import {
   closeDocDrawer,
+  openDocDrawer,
   showDocRoute,
   showTypeRoute,
   toggleDocDrawer,
@@ -50,8 +51,13 @@ import { icon } from './icons.js'
 import { buildThemeToggle } from './theme.js'
 import { createLayout } from './components/layout.js'
 import { startFieldSync, unsavedFields } from './field-sync.js'
+import { hasMedia } from './media/media-api.js'
+import { MediaSection } from './media/media-library.js'
 import { registerFieldWidget } from './field-widgets.js'
 import { createDrawingPad } from './components/drawing-pad.js'
+
+/** The Media section, made in buildShell when the editor has a library. */
+let mediaSection = null
 
 // DrawingField (one hand-drawn shape, e.g. a taste shape) draws in the form.
 registerFieldWidget('drawing', createDrawingPad)
@@ -97,8 +103,45 @@ async function syncActiveChangesetInfo(csId) {
  * @param {string} typeKey
  */
 async function selectTypeFromNav(typeKey) {
+  closeMedia();
   await selectType(typeKey);
   if (state.activeType === typeKey) showDocRoute();
+}
+
+/** The URL fragment that opens Media, so the portal and a bookmark can link to it. */
+const MEDIA_HASH = '#media'
+
+/**
+ * Point the URL at the section showing, without a history entry (the drawer
+ * uses history for the back gesture). The app bar listens for hashchange.
+ *
+ * @param {boolean} media
+ */
+function syncMediaHash(media) {
+  if ((location.hash === MEDIA_HASH) === media) return;
+  try {
+    history.replaceState(history.state, '', media ? MEDIA_HASH : location.pathname + location.search);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } catch { /* history unavailable */ }
+}
+
+/**
+ * Show the Media section in place of a type's documents. The open document,
+ * if any, stays loaded behind it, so going back to the type finds it as it was.
+ */
+function openMedia() {
+  if (!mediaSection) return;
+  if (!state.mediaOpen) setState({ mediaOpen: true });
+  mediaSection.show();
+  showDocRoute();
+  syncMediaHash(true);
+}
+
+function closeMedia() {
+  if (!state.mediaOpen) return;
+  mediaSection?.hide();
+  setState({ mediaOpen: false });
+  syncMediaHash(false);
 }
 
 /**
@@ -130,6 +173,20 @@ function render() {
   renderDocList(selectDocFromList, openNewDocFromList);
   renderHeader(togglePublish, saveDocument, deleteActiveDoc);
   state.editorToolbar?.update();
+
+  // Media takes over the document column and the main pane; editor.css hides
+  // the document parts under #app.is-media.
+  const app = document.getElementById('app');
+  app?.classList.toggle('is-media', state.mediaOpen);
+  document.getElementById('media-nav-item')?.classList.toggle('is-active', state.mediaOpen);
+  if (state.mediaOpen) {
+    for (const item of document.querySelectorAll('#type-list .is-active')) item.classList.remove('is-active');
+    const listTitle = document.getElementById('doc-list-title');
+    if (listTitle) listTitle.textContent = 'Media';
+    const headerTitle = document.getElementById('header-title');
+    if (headerTitle) headerTitle.textContent = 'Media';
+    return;
+  }
 
   // The action bar's children are hidden inline rather than removed, so :empty
   // never matches and it rendered as a bare strip with nothing in it.
@@ -191,6 +248,18 @@ function buildShell() {
       }, icon('x', { size: 20 }))
     ),
     el('nav', { class: 'sidebar-types__list', id: 'type-list' }),
+    // Media is a library, not a document type, so it sits under the types
+    // rather than among them.
+    hasMedia()
+      ? el('div', { class: 'sidebar-types__media' },
+          el('button', {
+            class: 'sidebar-types__item',
+            id: 'media-nav-item',
+            type: 'button',
+            title: 'Media',
+            onclick: openMedia,
+          }, el('span', { class: 'sidebar-types__item-icon' }, icon('image')), el('span', { class: 'sidebar-types__item-label' }, 'Media')))
+      : null,
     // Changesets and Chat are destinations, not document actions, so on small
     // screens they live here rather than in floating chrome that has to dodge
     // the action bar. Hidden at width, where the toolbar pill handles them.
@@ -235,6 +304,7 @@ function buildShell() {
         style: 'display:none',
         onclick: openNewDocFromList,
       }, icon('plus')),
+      el('span', { class: 'sidebar-docs__media-tools', id: 'media-tools' }),
       layout.docsToggle
     ),
     el('input', {
@@ -247,7 +317,8 @@ function buildShell() {
     }),
     el('div', { class: 'sidebar-docs__list', id: 'doc-list' },
       el('div', { class: 'sidebar-docs__empty' }, 'Choose a type to see its documents')
-    )
+    ),
+    el('div', { class: 'sidebar-docs__media', id: 'media-list' })
   );
 
   const main = el('main', { class: 'main-content' },
@@ -257,7 +328,7 @@ function buildShell() {
         type: 'button',
         title: 'Documents',
         'aria-label': 'Show document list',
-        onclick: () => toggleDocDrawer(state),
+        onclick: () => toggleDocDrawer(state.mediaOpen ? { activeType: 'media' } : state),
       }, icon('menu', { size: 20 })),
       layout.docsReveal,
       el('div', { class: 'editor-header__title-wrap' },
@@ -303,7 +374,8 @@ function buildShell() {
     ),
     el('div', { class: 'editor-scroll' },
       el('div', { id: 'pending-area' }),
-      el('div', { id: 'form-area' })
+      el('div', { id: 'form-area' }),
+      el('div', { id: 'media-area' })
     )
   );
 
@@ -322,6 +394,15 @@ function buildShell() {
   root.appendChild(layout.docsResizer);
   root.appendChild(main);
 
+  if (hasMedia()) {
+    mediaSection = new MediaSection({
+      listEl: document.getElementById('media-list'),
+      mainEl: document.getElementById('media-area'),
+      onSelect: () => closeDocDrawer(),
+    });
+    document.getElementById('media-tools')?.appendChild(mediaSection.uploadButton);
+  }
+
   wireDocDrawerDismiss();
   wireKeyboardInset();
 }
@@ -333,6 +414,18 @@ async function boot() {
   buildShell();
   startFieldSync();
   render(); // Show initial empty state
+
+  // /editor/#media opens straight onto Media (the portal's Media card); the
+  // app bar's Media link changes only the hash while the editor is open.
+  if (location.hash === MEDIA_HASH) {
+    openMedia();
+    // On a phone the grid is in the drawer, so open it rather than land on an
+    // empty pane.
+    if (window.matchMedia?.('(max-width: 640px)').matches) openDocDrawer({ activeType: 'media' });
+  }
+  window.addEventListener('hashchange', () => {
+    if (location.hash === MEDIA_HASH && !state.mediaOpen) openMedia();
+  });
 
   setState({ isLoadingSchema: true }, false);
   renderTypeList(selectType);

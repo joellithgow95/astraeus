@@ -9,13 +9,14 @@ import { buildLinksInput } from './links-input.js'
 import { buildTagInput, buildTagsInput } from './tags-input.js'
 import { getFieldWidget } from '../field-widgets.js'
 import { autoGrow, singleLine } from './autogrow.js'
+import { buildImageObjectField, isImageObjectMeta } from './image-picker.js'
 
 /**
  * Determine what kind of UI widget to use for a field.
  *
  * Returns one of: 'prosemirror' | 'textarea' | 'input' | 'number'
  *                 | 'boolean' | 'select' | 'json' | 'block_canvas'
- *                 | 'image_picker' | 'document_ref' | 'document_ref_list'
+ *                 | 'image_picker' | 'image_object' | 'document_ref' | 'document_ref_list'
  *                 | 'tags' | 'tag' | 'date' | 'links' | 'registry'
  *
  * A field_type with a registered widget (field-widgets.js — ADR 020) takes
@@ -42,6 +43,9 @@ export function fieldWidget(name, prop, meta) {
   if (ft === 'select')       return 'select';
   if (ft === 'number')       return 'number';
   if (ft === 'boolean')      return 'boolean';
+  // A JSONField whose schema hint is an image ({src, alt}) gets a picker.
+  // JSONField sets no field_type, so this is read from the hint alone.
+  if ((ft == null || ft === 'json') && isImageObjectMeta(meta)) return 'image_object';
   if (ft === 'json')         return 'json';
   if (ft === 'document_ref') return 'document_ref';
   if (ft === 'document_ref_list') return 'document_ref_list';
@@ -208,6 +212,10 @@ export function buildFieldGroup(name, prop, meta, state, onFieldChange, buildBlo
 
     case 'image_picker':
       group.appendChild(buildImagePickerField(name, currentVal));
+      break;
+
+    case 'image_object':
+      group.appendChild(buildImageObjectField(name, currentVal, onFieldChange));
       break;
 
     case 'prosemirror':

@@ -64,7 +64,7 @@ class RichTextField(_BaseField):
 
 @dataclass
 class ImageField(_BaseField):
-    """Stores a media reference — URL string or Mediakit asset key."""
+    """Stores a media reference — URL string or astraeus-media asset key."""
 
     def field_meta(self) -> dict[str, Any]:
         m = super().field_meta()

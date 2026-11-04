@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import TYPE_CHECKING
 
 import bcrypt
@@ -22,9 +23,8 @@ def _login_html(error: bool = False, next_url: str = "", mount: str = "") -> str
     error_block = (
         '<p class="error">Invalid username or password.</p>' if error else ""
     )
-    next_field = (
-        f'<input type="hidden" name="next" value="{next_url}">' if next_url else ""
-    )
+    next_value = escape(next_url, quote=True)
+    next_field = f'<input type="hidden" name="next" value="{next_value}">' if next_url else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
