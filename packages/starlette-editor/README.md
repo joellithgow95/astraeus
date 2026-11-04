@@ -42,10 +42,12 @@ Editor UI available at: **`/editor/shell`**
 Editor(
     cms=cms,
     mount_path="/editor",        # where the editor sub-app is mounted (default: /editor)
-    media_base="/media",         # optional: mount path of astraeus-media — enables the image picker
+    media_base="/media",         # optional: mount path of astraeus-media — enables Media and the image picker
     auth=lambda r: bool(r.user), # optional: callable (request) -> bool protecting /shell
 )
 ```
+
+**Media.** With `media_base` set, the shell has a **Media** section under the types (`/editor/#media` opens it): a grid of the library with a filter, upload by button or drop, and for a chosen image its URL for posts, alt text and tags, which save as they change, and Delete. It calls astraeus-media's HTTP API on the same origin with the login cookie, so the two need the same login. An `ImageField`, and a `JSONField` whose `schema` hint has `src` and `alt` properties (a post's card image, say), get a picker built from the same grid; picking fills `src` with the absolute 1200-wide IIIF URL and `alt` from the library's alt text. The code is in `editor_src/media/`.
 
 **Initialization order:** Create the `CMS` instance first, register all blocks, then create `Editor`. `Editor.__init__` registers `/api/editor-schema` on the CMS via `register_extension_route()`.
 

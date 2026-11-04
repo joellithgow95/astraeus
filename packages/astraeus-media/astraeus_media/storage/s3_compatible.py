@@ -53,9 +53,13 @@ class S3CompatibleBackend:
                     store_config["AWS_ACCESS_KEY_ID"] = self.config.aws_access_key_id
                 if self.config.aws_secret_access_key:
                     store_config["AWS_SECRET_ACCESS_KEY"] = self.config.aws_secret_access_key
+                # A plain-http endpoint is a local MinIO or similar; the
+                # client refuses http unless told otherwise.
+                allow_http = (self.config.endpoint_url or "").startswith("http://")
                 self._store = obs_store.S3Store.from_url(
                     f"s3://{self.config.bucket}/",
                     config=store_config,
+                    client_options={"allow_http": True} if allow_http else None,
                 )
         return self._store
 

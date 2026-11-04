@@ -75,6 +75,22 @@
     return parts.length ? '/' + parts[0] : '/';
   }
 
+  // The current app: one whose fragment the page is on, else the one whose
+  // section it is in and that has no fragment.
+  function markCurrent(links) {
+    var here = section(location.pathname);
+    var hashed = links.filter(function (l) {
+      return l.url.hash && l.url.hash === location.hash && section(l.url.pathname) === here;
+    });
+    links.forEach(function (l) {
+      var on = hashed.length
+        ? hashed.indexOf(l) >= 0
+        : here !== '/' && !l.url.hash && section(l.url.pathname) === here;
+      if (on) l.link.setAttribute('aria-current', 'page');
+      else l.link.removeAttribute('aria-current');
+    });
+  }
+
   var style = el('style', { id: 'astraeus-app-bar-style' });
   style.textContent = css;
   document.head.appendChild(style);
@@ -99,14 +115,17 @@
     .then(function (data) {
       if (!data) return;
       if (data.title) homeLabel.textContent = data.title;
-      var here = section(location.pathname);
-      (data.apps || []).forEach(function (app) {
+      var links = (data.apps || []).map(function (app) {
         var link = el('a', { href: app.path, title: app.description || app.name });
         if (app.icon) link.appendChild(el('span', { class: 'astraeus-bar-icon', 'aria-hidden': 'true' }, app.icon));
         link.appendChild(document.createTextNode(app.name));
-        if (here !== '/' && section(app.path) === here) link.setAttribute('aria-current', 'page');
         list.appendChild(link);
+        return { link: link, url: new URL(app.path, location.href) };
       });
+      markCurrent(links);
+      // An app can live at a fragment of another (Media at /editor/#media),
+      // and a page can move between them without loading.
+      window.addEventListener('hashchange', function () { markCurrent(links); });
     })
     .catch(function () { /* keep the home link */ });
 })();

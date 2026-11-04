@@ -19,6 +19,7 @@ export function setRenderFn(fn) {
 export const state = {
   schema: null,           // { [doc_type]: { block_type, schema, field_meta } }
   activeType: null,       // string doc_type key
+  mediaOpen: false,       // the Media section is showing instead of a type
   documents: [],          // array of document objects for the active type
   docsTotal: 0,
   docFilter: '',          // client-side filter over the loaded document list
