@@ -27,7 +27,7 @@ _KNOWN_PACKAGES = [
     "starlette-cms",
     "starlette-editor",
     "starlette-cms-gateways",
-    "mediakit",
+    "astraeus-media",
     "starlette-chat",
     "astraeus-portal",
     "astraeus-otel",

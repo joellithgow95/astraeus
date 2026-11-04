@@ -42,7 +42,7 @@ Editor UI available at: **`/editor/shell`**
 Editor(
     cms=cms,
     mount_path="/editor",        # where the editor sub-app is mounted (default: /editor)
-    media_base="/media",         # optional: mount path of mediakit — enables the image picker
+    media_base="/media",         # optional: mount path of astraeus-media — enables the image picker
     auth=lambda r: bool(r.user), # optional: callable (request) -> bool protecting /shell
 )
 ```
@@ -110,7 +110,7 @@ editor_src/
     mount.js            ← mountProseMirrorEditors(), destroyPmInstances()
   components/
     block-canvas.js     ← ListField / BlockField interactive card canvas
-    image-picker.js     ← Mediakit iframe picker widget
+    image-picker.js     ← astraeus-media iframe picker widget
     toast.js            ← toast notification system
     confirm.js          ← confirmation dialog
     meta-panel.js       ← document metadata panel
@@ -184,7 +184,7 @@ The changeset panel, chat panel, publish drawer and toasts are written against t
 |---|---|
 | `RichTextField` | ProseMirror rich text editor |
 | `TextField` | `<input type="text">` (or `<textarea>` for long-name fields) |
-| `ImageField` | Mediakit iframe picker (falls back to text input) |
+| `ImageField` | astraeus-media iframe picker (falls back to text input) |
 | `ListField` / `BlockField` | Block canvas: a card per block with move up/down; the add menu lists each block type with its docstring. A collapsed card says what it holds (`2026-10-01 – 2026-10-31`, `Links: 3`, a tag); a new card opens, and open cards stay open across a re-render. Fields inside a card get the same widgets as at the top level (dates, tags, references), with their label and help text |
 | `SelectField` | `<select>` dropdown |
 | `NumberField` | `<input type="number">` with min/max |

@@ -18,7 +18,7 @@ DEFAULT_COMPONENTS = [
     "astraeus-otel",
     "astraeus-portal",
     "docs",
-    "mediakit",
+    "astraeus-media",
     "starlette-chat",
     "starlette-cms",
     "starlette-cms-feedback",

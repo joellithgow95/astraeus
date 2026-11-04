@@ -3,7 +3,7 @@
    ============================================================
 
    One token set for every admin surface: the editor shell, the embed
-   overlay chrome, the gateways admin, the mediakit admin, and the portal.
+   overlay chrome, the gateways admin, the astraeus-media admin, and the portal.
 
    Owned by starlette-cms because it is the only package all of them already
    depend on (the ADR 004 precedent — shared knowledge lives in the package
@@ -30,7 +30,7 @@
    (prefers-color-scheme) unless <html> carries data-astraeus-theme="light" or
    "dark", which wins either way. theme.js (served beside this file) sets that
    attribute from the person's stored choice, so a choice made in one admin
-   surface holds in all of them. Mediakit pins "light", because media is
+   surface holds in all of them. astraeus-media pins "light", because media is
    judged against its ground: a dark one makes light images glow and dark
    images disappear. Only the surface, text and shadow ramp differs; spacing,
    type, radius, targets and transitions are shared.

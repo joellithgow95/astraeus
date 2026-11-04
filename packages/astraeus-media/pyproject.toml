@@ -1,0 +1,49 @@
+[project]
+name = "astraeus-media"
+version = "0.2.0"
+description = "Media management for Starlette — S3-compatible storage, IIIF Image API, upload flow, admin UI"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Joel Lithgow" }]
+requires-python = ">=3.12"
+keywords = ["starlette", "media", "s3", "iiif", "asgi", "upload"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "starlette>=1.0",
+    "obstore>=0.10",
+    "Pillow>=11.0",
+    "aiosqlite>=0.20",
+    "pydantic>=2.0",
+    "anyio",
+    "click>=8.0",
+    "structlog>=24.0",
+    "opentelemetry-api>=1.25",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0,<2", "httpx>=0.27"]
+admin = ["jinja2>=3.1", "python-multipart>=0.0.9"]
+fastapi = ["fastapi>=0.115"]
+cli = ["click>=8.0", "uvicorn>=0.30"]
+full = ["astraeus-media[mcp,admin,fastapi,cli]"]
+dev = ["astraeus-media[full]", "httpx>=0.27"]
+
+[project.scripts]
+astraeus-media = "astraeus_media.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ASneakyToast/astraeus"
+Repository = "https://github.com/ASneakyToast/astraeus"
+
+[tool.hatch.build.targets.wheel]
+packages = ["astraeus_media"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

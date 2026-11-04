@@ -2,7 +2,7 @@
 
 OpenTelemetry SDK bootstrap for the [Astraeus](https://github.com/ASneakyToast/astraeus) package suite.
 
-One call wires traces, structured logs, and OTEL export across `starlette-cms`, `mediakit`, and
+One call wires traces, structured logs, and OTEL export across `starlette-cms`, `astraeus-media`, and
 `starlette-cms-gateways`. Without this package, all OTEL calls in those packages are no-ops.
 
 ## Usage

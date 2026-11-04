@@ -1,21 +1,20 @@
 """
 Astraeus demo — minimal full-stack integration.
 
-Shows starlette-cms, starlette-editor, starlette-chat, and mediakit working together.
+Shows starlette-cms, starlette-editor, starlette-chat, and astraeus-media working together.
 Run with: uvicorn app:app --reload
 """
 
 import os
 from contextlib import asynccontextmanager
 
+from astraeus_media.adapters.starlette import create_media_mount
 from starlette.applications import Starlette
 from starlette.routing import Mount
-
-from starlette_cms import CMS, TextField, RichTextField, ImageField, ListField
-from starlette_editor import Editor
-from mediakit.adapters.starlette import create_media_mount
 from starlette_chat import ChatAPI, register_blocks
 from starlette_chat.providers.anthropic import AnthropicProvider
+from starlette_cms import CMS, ImageField, ListField, RichTextField, TextField
+from starlette_editor import Editor
 
 # --- CMS setup -----------------------------------------------------------
 

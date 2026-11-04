@@ -10,7 +10,7 @@ This is the Astraeus monorepo. Read this file before doing anything else.
 
 - **`starlette-cms`** — headless CMS (block registry, document API, webhooks, schema versioning)
 - **`starlette-editor`** — visual editing UI (ProseMirror-based, auto-generated from block schema)
-- **`mediakit`** — media management (S3-compatible storage, IIIF Image API, presigned uploads)
+- **`astraeus-media`** — media management (S3-compatible storage, IIIF Image API, presigned uploads)
 - **`starlette-cms-gateways`** — framework for pulling external service data into the CMS as documents
 - **`starlette-cms-feedback`** — feedback and bug reports: admin page, auth-gated HTTP API on the CMS, MCP tools
 - **`starlette-chat`** — governed AI chat collaborator with live ProseMirror collab
@@ -47,7 +47,7 @@ astraeus/
 ├── packages/
 │   ├── starlette-cms/             ← implement first, everything depends on it
 │   ├── starlette-editor/          ← implements after starlette-cms Phase 1
-│   ├── mediakit/                  ← mostly independent, parallels starlette-cms
+│   ├── astraeus-media/                  ← mostly independent, parallels starlette-cms
 │   ├── starlette-cms-gateways/    ← gateway framework: sync loop, ownership, cursor state (ADR 015, 023)
 │   ├── starlette-chat/            ← governed AI chat with live collab
 │   ├── astraeus-otel/             ← OpenTelemetry config & test helpers
@@ -95,8 +95,8 @@ uv run ruff format packages/
 
 ### Package boundaries
 - `starlette-editor` depends on `starlette-cms` — never the reverse
-- `mediakit` has no dependency on either CMS package
-- `starlette-cms` has an optional soft dependency on `mediakit` via the `MediaBackend` protocol — it never imports mediakit directly
+- `astraeus-media` has no dependency on either CMS package
+- `starlette-cms` has an optional soft dependency on `astraeus-media` via the `MediaBackend` protocol — it never imports astraeus-media directly
 
 ### Writing documents: every field is live (ADR 027)
 A document is written two ways: the **collab path** (steps applied in order by a rich-text field's `CollabAuthority` and broadcast to every editor) and the **CRUD path** (`PATCH /api/documents/{id}`). Which one a change takes depends on the field:
@@ -121,7 +121,7 @@ A document is written two ways: the **collab path** (steps applied in order by a
 
 See `docs/roadmap.md` for the full phased plan and current progress.
 
-**Short version:** Phases 0–14 complete. starlette-cms: core, schema versioning, webhooks, testing utilities, field types, singletons, immutable fields, DocumentRef, list filters, MCP server, observability. mediakit: storage backend, catalog, upload flow, processing pipeline (EXIF strip, WebP conversion, dimension cap; opt-in with `keep_originals=False`, as originals are kept untouched by default and IIIF cuts every rendition from them), IIIF Image API Level 1, asset/references routes, auth, admin UI, MCP server, CLI. starlette-editor: fully polished and PyPI-ready — ProseMirror-based editor with npm-bundled assets (no CDN), real markdown serialization, 83 JS unit tests (Vitest), 19 Python integration tests, build pipeline (esbuild + Makefile). starlette-cms-gateways: gateway framework implemented and in use by joellithgow.com — `BaseGateway`/`CMSClient`/CLI/admin UI/MCP, field ownership with no-op re-syncs, sync ranges, and (ADR 023) a cursor and job history kept in the CMS database, with a run's writes published as one changeset. starlette-chat: governed AI chat collaborator (Phases CH-1 through CH-6). astraeus-portal: central nav hub with card grid and compose_app convenience (Phase POR-1).
+**Short version:** Phases 0–14 complete. starlette-cms: core, schema versioning, webhooks, testing utilities, field types, singletons, immutable fields, DocumentRef, list filters, MCP server, observability. astraeus-media: storage backend, catalog, upload flow, processing pipeline (EXIF strip, WebP conversion, dimension cap; opt-in with `keep_originals=False`, as originals are kept untouched by default and IIIF cuts every rendition from them), IIIF Image API Level 1, asset/references routes, auth, admin UI, MCP server, CLI. starlette-editor: fully polished and PyPI-ready — ProseMirror-based editor with npm-bundled assets (no CDN), real markdown serialization, 83 JS unit tests (Vitest), 19 Python integration tests, build pipeline (esbuild + Makefile). starlette-cms-gateways: gateway framework implemented and in use by joellithgow.com — `BaseGateway`/`CMSClient`/CLI/admin UI/MCP, field ownership with no-op re-syncs, sync ranges, and (ADR 023) a cursor and job history kept in the CMS database, with a run's writes published as one changeset. starlette-chat: governed AI chat collaborator (Phases CH-1 through CH-6). astraeus-portal: central nav hub with card grid and compose_app convenience (Phase POR-1).
 
 ---
 
@@ -132,7 +132,7 @@ See `docs/roadmap.md` for the full phased plan and current progress.
 - Plugin composition via `register_extension_route()` — editor extends CMS, not peer coupling
 - MCP servers are optional HTTP client wrappers (`[mcp]` extra), not embedded in package core
 - Webhooks handle build triggers — no direct Netlify/Vercel integration
-- Content-addressed storage keys in mediakit (`originals/{sha256_prefix}/{filename}`)
+- Content-addressed storage keys in astraeus-media (`originals/{sha256_prefix}/{filename}`)
 - Two-form block decorator: `@cms.block()` (immediate) vs `@block()` (deferred/standalone)
 - Every field is live: rich text through the collab authority (anchored edits from outside the editor), plain fields last-writer-wins per field (ADR 027, proposed)
 

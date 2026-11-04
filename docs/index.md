@@ -10,7 +10,7 @@ Astraeus gives you the primitives — blocks, documents, singletons, references,
 |---|---|---|
 | **starlette-cms** | Headless CMS — block registry, document API, webhooks, schema versioning | v0.4.0 |
 | **starlette-editor** | Visual editing UI — ProseMirror-based, auto-generated from block schema | Planned |
-| **mediakit** | Media management — S3-compatible storage, IIIF Image API, presigned uploads | In progress |
+| **astraeus-media** | Media management — S3-compatible storage, IIIF Image API, presigned uploads | In progress |
 
 Each package installs independently from PyPI. Together they form a full content management and data governance stack.
 

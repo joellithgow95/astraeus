@@ -16,7 +16,7 @@ datasets, and curated test cases (see `docs/use-cases/`).
 │                                                                      │
 │  app.mount("/cms",    app=cms.app)    ← starlette-cms               │
 │  app.mount("/editor", app=editor.app) ← starlette-editor            │
-│  app.mount("/media",  app=media)      ← mediakit                    │
+│  app.mount("/media",  app=media)      ← astraeus-media                    │
 │  app.mount("/chat",   app=chat.app)   ← starlette-chat              │
 └──────────┬────────────────────────────────────────┬─────────────────┘
            │ webhooks on document.published          │ MCP tools
@@ -57,7 +57,7 @@ Astro (or any static frontend)
           both are clients of cms.app — no special access
 
   ┌────────────────────────┐        ┌─────────────────────────┐
-  │      mediakit          │        │  mediakit MCP           │
+  │      astraeus-media          │        │  astraeus-media MCP           │
   │                        │        │  (optional, [mcp] extra) │
   │  - S3-compatible store │        │                         │
   │  - SQLite catalog      │        │  HTTP client wrapper    │
@@ -85,12 +85,12 @@ Astro (or any static frontend)
   edit_document submits ProseMirror steps to /api/documents/{id}/collab
   using client_id="claude-assistant", identical to human browser clients.
 
-  starlette-chat uses mediakit indirectly via the CMS HTTP API
-  (search_media tool calls a mediakit assets endpoint if configured);
-  it never imports mediakit directly.
+  starlette-chat uses astraeus-media indirectly via the CMS HTTP API
+  (search_media tool calls a astraeus-media assets endpoint if configured);
+  it never imports astraeus-media directly.
 
-  mediakit has NO dependency on starlette-cms.
-  starlette-cms references mediakit only via the MediaBackend Protocol —
+  astraeus-media has NO dependency on starlette-cms.
+  starlette-cms references astraeus-media only via the MediaBackend Protocol —
   never a direct import.
 ```
 
@@ -264,20 +264,20 @@ existing collab broadcast — no special case required in the editor frontend.
 
 ---
 
-## Mediakit — no proxying, ever
+## astraeus-media — no proxying, ever
 
-Mediakit never proxies files through the application server. The upload and serve flows both bypass the server entirely:
+astraeus-media never proxies files through the application server. The upload and serve flows both bypass the server entirely:
 
 **Upload flow:**
 ```
-Browser → POST /upload/prepare → Mediakit → presigned PUT URL
+Browser → POST /upload/prepare → astraeus-media → presigned PUT URL
 Browser → PUT [file bytes] → S3/GCS/R2 directly
-Browser → POST /upload/confirm → Mediakit → processes + catalogs
+Browser → POST /upload/confirm → astraeus-media → processes + catalogs
 ```
 
 **Serve flow:**
 ```
-Request → /media/iiif/{key}/... → Mediakit → 302 redirect → S3/GCS/R2 directly
+Request → /media/iiif/{key}/... → astraeus-media → 302 redirect → S3/GCS/R2 directly
 ```
 
 The first IIIF request for a given derivative generates it (Pillow) and stores it in the bucket. All subsequent requests are redirects to the cached derivative — no server processing.
@@ -301,12 +301,12 @@ This is the canonical format shared by the editor (which uses ProseMirror) and t
 
 ---
 
-## Content-addressed keys in Mediakit
+## Content-addressed keys in astraeus-media
 
 Asset keys use the scheme `originals/{sha256_prefix}/{filename}` where the prefix is derived from file content:
 
 - **No silent overwrites** — different file content → different key, even with the same filename
-- **Implicit derivative invalidation** — if an original is replaced, the new key is different, old derivatives are orphaned and cleaned by `mediakit gc`
+- **Implicit derivative invalidation** — if an original is replaced, the new key is different, old derivatives are orphaned and cleaned by `astraeus-media gc`
 - **No "replace in place"** — content replacement is always upload-new + delete-old
 
 ---

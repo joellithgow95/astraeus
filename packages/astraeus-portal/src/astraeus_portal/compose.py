@@ -276,7 +276,7 @@ def _component_mounts(
 def _link_to_portal(components: list[Any], *, portal_url: str) -> None:
     """Set ``portal_url`` on each component that takes one and has none yet.
 
-    The editor, gateway and feedback admins carry it as an attribute; mediakit
+    The editor, gateway and feedback admins carry it as an attribute; astraeus-media
     carries it on its config.
     """
     for component in components:

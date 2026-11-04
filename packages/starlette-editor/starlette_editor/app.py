@@ -30,7 +30,7 @@ class Editor:
         clicking the button POSTs to ``endpoint`` on the CMS. Injected into the
         shell config and rendered in the floating toolbar.
     :param cms: The CMS instance to extend. Extension routes are registered at init time.
-    :param media_base: Mount path of Mediakit — enables the image picker in ImageField editing.
+    :param media_base: Mount path of astraeus-media — enables the image picker in ImageField editing.
     :param mount_path: The path this editor is mounted at.
     :param auth: Optional auth callable (request) -> bool protecting /shell.
     :param login_path: Where to redirect unauthenticated /shell visitors when

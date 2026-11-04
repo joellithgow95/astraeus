@@ -1,5 +1,5 @@
 /**
- * components/image-picker.js — Mediakit iframe picker widget.
+ * components/image-picker.js — astraeus-media iframe picker widget.
  */
 
 import { el } from '../utils.js'
@@ -19,7 +19,7 @@ function closePickerModal() {
 }
 
 /**
- * Handle postMessage events from the Mediakit picker iframe.
+ * Handle postMessage events from the astraeus-media picker iframe.
  *
  * @param {MessageEvent} event
  */
@@ -27,7 +27,7 @@ function onPickerMessage(event) {
   const data = event.data;
   if (!data) return;
   const type = typeof data === 'string' ? data : data.type;
-  if (type === 'mediakit:asset-selected') {
+  if (type === 'astraeus-media:asset-selected') {
     const value = (typeof data === 'object' ? (data.key || data.url) : null) || '';
     if (currentPickerField) {
       // Dispatch a custom DOM event so callers can react without tight coupling
@@ -42,13 +42,13 @@ function onPickerMessage(event) {
       if (valEl) valEl.value = value;
     }
     closePickerModal();
-  } else if (type === 'mediakit:picker-cancelled') {
+  } else if (type === 'astraeus-media:picker-cancelled') {
     closePickerModal();
   }
 }
 
 /**
- * Open the Mediakit picker iframe in a modal overlay.
+ * Open the astraeus-media picker iframe in a modal overlay.
  *
  * @param {string} fieldName
  */
@@ -73,7 +73,7 @@ export function openImagePicker(fieldName) {
 
 /**
  * Build the image picker widget for an ImageField.
- * Shows an iframe-based Mediakit picker when media_base is configured,
+ * Shows an iframe-based astraeus-media picker when media_base is configured,
  * otherwise falls back to a plain text input.
  *
  * @param {string} fieldName

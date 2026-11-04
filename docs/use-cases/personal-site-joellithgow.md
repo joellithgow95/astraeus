@@ -3,7 +3,7 @@
 **Status:** Active — primary motivation for Astraeus  
 **Explored:** 2026-06-13  
 **Repo:** `github.com/ASneakyToast/joellithgow` (separate from this monorepo)  
-**Packages:** `starlette-cms`, `starlette-editor`, `mediakit` (full stack)  
+**Packages:** `starlette-cms`, `starlette-editor`, `astraeus-media` (full stack)  
 **Roadmap impact:** This is the original design driver — headless-first architecture, MCP as first-class goal, Netlify webhook, agent-driven publishing, ProseMirror editor
 
 > **Current state (2026-10-28).** The sketch below is the original plan from 2026-06. The live site has moved on:
@@ -34,7 +34,7 @@ joellithgow (Astro.js, github.com/ASneakyToast/joellithgow)
         │
         │  fetch content at build time
         ▼
-starlette-cms + mediakit backend
+starlette-cms + astraeus-media backend
   (deployed on Fly.io or Railway)
         │
         │  document.published webhook
@@ -101,7 +101,7 @@ class Page:
 ## The migration path from MDX
 
 **Phase A — Backend deployed, Astro fetching from CMS:**
-1. Deploy starlette-cms + mediakit to Fly.io or Railway
+1. Deploy starlette-cms + astraeus-media to Fly.io or Railway
 2. Seed the CMS by importing existing MDX content as documents
 3. Update Astro to fetch from `/cms/api/documents?type=blog_post` at build time instead of
    reading MDX files from disk
@@ -207,9 +207,9 @@ Fly.io or Railway
   ├── starlette-cms (FastAPI app)
   │     ├── SQLite (WAL) — simple, no separate DB service needed
   │     └── starlette-cms[mcp] optional extra
-  └── mediakit
+  └── astraeus-media
         ├── Cloudflare R2 (S3-compatible, cheap egress)
-        └── mediakit[mcp] optional extra
+        └── astraeus-media[mcp] optional extra
 
 joellithgow (Astro.js) → Netlify
   ├── build-time: fetch from CMS API

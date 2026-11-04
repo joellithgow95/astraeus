@@ -2,7 +2,7 @@
 Chat tool dispatcher.
 
 Implements the curated AI tool suite scoped to the editing session.
-Tools are thin wrappers over the existing CMS and mediakit HTTP APIs
+Tools are thin wrappers over the existing CMS and astraeus-media HTTP APIs
 plus the ProseMirror collab WebSocket for edit operations.
 """
 
@@ -160,10 +160,10 @@ class ToolDispatcher:
         without one, which overwrote the document's whole body (title,
         description, …) with it; the CMS now refuses field-less connections.
         """
+        import websockets
+
         from .diff import diff_docs
         from .prosemirror import markdown_to_pm
-
-        import websockets
 
         ctx = context if context is not None else {}
 

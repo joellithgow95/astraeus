@@ -19,17 +19,14 @@ import pytest_asyncio
 from httpx import ASGITransport
 from starlette.applications import Starlette
 from starlette.routing import Mount
-
-from starlette_cms import CMS
-
+from starlette_chat import register_blocks
 from starlette_chat.blocks import (
     ChatMessageBlock,
     ChatSessionBlock,
     ModelConfigBlock,
     SystemPromptBlock,
 )
-from starlette_chat import register_blocks
-
+from starlette_cms import CMS
 
 # ---------------------------------------------------------------------------
 # Fixtures

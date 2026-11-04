@@ -2,7 +2,7 @@
 astraeus-portal — Central navigation hub for Astraeus.
 
 Provides a mountable Starlette sub-application that serves a portal/homepage
-linking to all admin interfaces in the Astraeus stack (editor, mediakit,
+linking to all admin interfaces in the Astraeus stack (editor, astraeus-media,
 gateways, feedback, and any custom apps).
 
 Quickstart::

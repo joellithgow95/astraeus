@@ -106,8 +106,8 @@ one highlighted. A page loads it with one tag:
 <script src="/app-bar.js" defer></script>
 ```
 
-The editor, gateway admin, feedback admin and mediakit add that tag when given
-`portal_url=` (mediakit: `MediakitConfig(portal_url=...)`); `compose_app` sets
+The editor, gateway admin, feedback admin and astraeus-media add that tag when given
+`portal_url=` (astraeus-media: `MediakitConfig(portal_url=...)`); `compose_app` sets
 it on each for you. The bar reads the app list from `GET /apps.json`, which sits
 behind the portal's `auth` like the page. If that fails it still shows the home
 link. It sets `--astraeus-bar-h` on the page, so a layout sized to the viewport
