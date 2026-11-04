@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode
 
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
@@ -52,6 +53,10 @@ def make_admin_routes(mk: MediaKit) -> list[Route | Mount]:
     )
     # Available to every template without threading it through each render().
     env.globals["tokens_url"] = mk.config.tokens_url
+    portal_url = mk.config.portal_url
+    env.globals["app_bar_url"] = (
+        f"{portal_url.rstrip('/')}/app-bar.js" if portal_url is not None else None
+    )
 
     def base_of(request: Request) -> str:
         """Where mediakit is mounted (``""`` at the root, ``"/media"`` under a host).
@@ -67,16 +72,23 @@ def make_admin_routes(mk: MediaKit) -> list[Route | Mount]:
 
     async def guard(request: Request):
         """Admin pages list the whole library and expose upload and delete, so they
-        take the same auth as the write endpoints. Returns a 401 or ``None``."""
-        from mediakit.auth import require_auth
+        take the same auth as the write endpoints. Returns a 401, a redirect to
+        ``login_url`` when one is set, or ``None``."""
+        from mediakit.auth import check_auth, require_auth
 
+        login_url = mk.config.login_url
+        if login_url and not await check_auth(request, mk):
+            target = request.url.path
+            if request.url.query:
+                target += f"?{request.url.query}"
+            return RedirectResponse(f"{login_url}?{urlencode({'next': target})}", status_code=302)
         return await require_auth(request, mk)
 
     # ------------------------------------------------------------------
     # Asset browser — GET /admin
     # ------------------------------------------------------------------
 
-    async def browser(request: Request) -> HTMLResponse:
+    async def browser(request: Request) -> Response:
         """``GET /admin`` — responsive grid of asset thumbnails."""
         if (err := await guard(request)) is not None:
             return err
@@ -122,7 +134,7 @@ def make_admin_routes(mk: MediaKit) -> list[Route | Mount]:
     # Upload page — GET /admin/upload
     # ------------------------------------------------------------------
 
-    async def upload_page(request: Request) -> HTMLResponse:
+    async def upload_page(request: Request) -> Response:
         """``GET /admin/upload`` — drag-and-drop upload form."""
         if (err := await guard(request)) is not None:
             return err

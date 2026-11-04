@@ -488,3 +488,32 @@ async def test_schema_endpoint_returns_labels():
     data = resp.json()
     fields = data["blockTypes"]["article"]["fields"]
     assert fields["headline"]["label"] == "Article Headline"
+
+
+@pytest.mark.anyio
+async def test_shell_is_also_at_the_mount_root():
+    """/editor/ is the editor; /editor/shell stays for bookmarks."""
+    _, editor = _build_cms_and_editor()
+    app = Starlette(routes=[Mount("/editor", app=editor.app)])
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        resp = await client.get("/editor/")
+
+    assert resp.status_code == 200
+    assert "__EDITOR_CONFIG__" in resp.text
+
+
+@pytest.mark.anyio
+async def test_shell_loads_the_app_bar_when_given_a_portal():
+    from starlette_editor.app import Editor
+
+    cms, editor = _build_cms_and_editor()
+    with_portal = Editor(cms=cms, mount_path="/editor", portal_url="/")
+    for ed, expected in ((editor, False), (with_portal, True)):
+        app = Starlette(routes=[Mount("/editor", app=ed.app)])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            resp = await client.get("/editor/shell")
+        assert ('<script src="/app-bar.js" defer></script>' in resp.text) is expected

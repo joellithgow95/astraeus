@@ -21,8 +21,15 @@
   --keyboard-inset: 0px;
 }
 
-html, body {
+html {
   height: 100%;
+}
+
+body {
+  height: calc(100% - var(--astraeus-bar-h, 0px));
+}
+
+html, body {
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -35,7 +42,8 @@ html, body {
 /* ---------- App Shell ---------- */
 #app {
   display: flex;
-  height: 100dvh;
+  /* --astraeus-bar-h: the portal's app bar above the shell, when it is loaded. */
+  height: calc(100dvh - var(--astraeus-bar-h, 0px));
   overflow: hidden;
 }
 
@@ -2218,7 +2226,7 @@ body.is-resizing * {
   .sidebar-types,
   .sidebar-docs {
     position: fixed;
-    top: 0;
+    top: var(--astraeus-bar-h, 0px);
     bottom: 0;
     left: 0;
     width: 100%;

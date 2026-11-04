@@ -66,6 +66,8 @@ class FeedbackAdmin:
         path in production.  Ignored if *store* is provided.
     :param login_path: Where unauthenticated visitors to the shell are sent.
     :param mount_path: The path this admin UI is mounted at.
+    :param portal_url: Where the Astraeus portal is mounted (e.g. ``"/"``). Set, the
+        shell loads the portal's app bar, which links home and to the other apps.
     :param auth: Optional ``(request) -> bool`` callable protecting the
         ``/shell`` HTML page.  The API routes always use the CMS auth model,
         so the page being open exposes no reports — but set this on a public
@@ -82,6 +84,7 @@ class FeedbackAdmin:
         db_path: str | Path = DEFAULT_DB,
         login_path: str = "/api/auth/login",
         mount_path: str = "/feedback",
+        portal_url: str | None = None,
         store: FeedbackStore | None = None,
     ) -> None:
         self.auth = auth
@@ -89,6 +92,7 @@ class FeedbackAdmin:
         self.components = components if components is not None else list(DEFAULT_COMPONENTS)
         self.login_path = login_path
         self.mount_path = mount_path
+        self.portal_url = portal_url
         self.store = store if store is not None else FeedbackStore(db_path)
 
         # Must happen before cms.app is accessed.

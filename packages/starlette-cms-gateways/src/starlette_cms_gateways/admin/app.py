@@ -83,6 +83,8 @@ class GatewayAdmin:
         ``/shell`` HTML page.  API routes always use the CMS auth model
         (``Authorization: Bearer <api_key>``).  Defaults to ``None`` — set
         this when the admin is exposed on a public server.
+    :param portal_url: Where the Astraeus portal is mounted (e.g. ``"/"``). Set, the
+        shell loads the portal's app bar, which links home and to the other apps.
     :param jobs_db_path: SQLite file for sync state (job records and the cursor).
         Defaults to **the CMS's own database file**, so the state is
         as persistent and as backed up as the content (a Litestream replica of the
@@ -103,6 +105,7 @@ class GatewayAdmin:
         mount_path: str = "/gateways",
         auth: Callable | None = None,
         login_path: str = "/api/auth/login",
+        portal_url: str | None = None,
         jobs_db_path: str | Path | None = None,
         job_store: JobStore | None = None,
     ) -> None:
@@ -110,6 +113,7 @@ class GatewayAdmin:
         self.mount_path = mount_path
         self.auth = auth
         self.login_path = login_path
+        self.portal_url = portal_url
 
         if job_store is not None:
             if jobs_db_path is not None:

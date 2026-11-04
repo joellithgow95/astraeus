@@ -3,7 +3,7 @@ astraeus-portal — Central navigation hub for Astraeus.
 
 Provides a mountable Starlette sub-application that serves a portal/homepage
 linking to all admin interfaces in the Astraeus stack (editor, mediakit,
-gateways, chat, and any custom apps).
+gateways, feedback, and any custom apps).
 
 Quickstart::
 
@@ -12,7 +12,7 @@ Quickstart::
     portal = Portal(apps=[
         PortalApp(
             name="Editor",
-            path="/editor/shell",
+            path="/editor/",
             description="Create and edit content documents",
             icon="✏️",
         ),
@@ -24,15 +24,9 @@ Quickstart::
         ),
         PortalApp(
             name="Gateways",
-            path="/gateways/shell",
+            path="/gateways/",
             description="Sync data from external services",
             icon="🔄",
-        ),
-        PortalApp(
-            name="Chat",
-            path="/chat/shell",
-            description="AI-powered editing assistant",
-            icon="💬",
         ),
     ])
 

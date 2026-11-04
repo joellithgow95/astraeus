@@ -39,6 +39,13 @@ class MediakitConfig(BaseModel):
     # Unset means the admin uses its own built-in values, which is the right
     # default for a standalone mediakit deployment.
     tokens_url: str | None = None
+    # Where to send a signed-out visitor to an admin page, with ?next= back to it,
+    # e.g. the CMS login "/api/auth/login". Unset, the page answers 401.
+    login_url: str | None = None
+    # Where the Astraeus portal is mounted, e.g. "/". Set, the admin pages load
+    # the portal's app bar ({portal_url}/app-bar.js), which links home and to the
+    # other apps. Like tokens_url, a URL rather than an import.
+    portal_url: str | None = None
 
     # Renditions
     # Where IIIF renditions are stored. Unset: beside the originals, in `bucket`.

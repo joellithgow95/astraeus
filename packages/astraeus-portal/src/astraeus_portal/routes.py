@@ -1,5 +1,6 @@
 """
-Portal routes — ``GET /`` (portal shell page) and ``/static/*``.
+Portal routes — ``GET /`` (portal shell page), ``GET /apps.json`` (the app
+list) and ``GET /app-bar.js`` (the bar other admin pages load to link home).
 
 The shell is a server-rendered HTML page with an inline dark-themed design
 that shows all registered apps as a grid of clickable cards.
@@ -9,14 +10,17 @@ from __future__ import annotations
 
 import html
 import importlib.metadata
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 if TYPE_CHECKING:
     from astraeus_portal.app import Portal
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 _KNOWN_PACKAGES = [
@@ -79,10 +83,8 @@ def _build_shell_html(portal: Portal) -> str:
         pkgs = _gather_package_info()
         if pkgs:
             pkg_rows = (
-                            '<div class="pkg-section">\n'
-                            "<h2>Installed Packages</h2>\n"
-                            '<div class="pkg-grid">\n'
-                        )
+                '<div class="pkg-section">\n<h2>Installed Packages</h2>\n<div class="pkg-grid">\n'
+            )
             for pkg in pkgs:
                 pkg_rows += (
                     f'<div class="pkg-item">\n'
@@ -104,9 +106,7 @@ def _build_shell_html(portal: Portal) -> str:
     if portal.github_url:
         footer_parts.append(f'<a href="{portal.github_url}" class="footer-link">🐙 GitHub</a>')
     pkg_name = importlib.metadata.version("astraeus_portal")
-    footer_parts.append(
-        f'<span class="footer-version">astraeus-portal {pkg_name}</span>'
-    )
+    footer_parts.append(f'<span class="footer-version">astraeus-portal {pkg_name}</span>')
     if footer_parts:
         footer_html = '<div class="footer">' + "  ·  ".join(footer_parts) + "</div>"
 
@@ -265,7 +265,7 @@ def _build_shell_html(portal: Portal) -> str:
     }}
 
     /* ── Section headings ────────────────────────── */
-    section h2 {{
+    section h2, .pkg-section h2 {{
       font-size: 1rem;
       font-weight: 600;
       color: var(--text-secondary);
@@ -398,21 +398,55 @@ def make_portal_routes(portal: Portal) -> list:
       GET /  — HTML shell page
     """
 
-    async def shell_endpoint(request: Request) -> HTMLResponse:
+    async def shell_endpoint(request: Request) -> HTMLResponse | RedirectResponse:
         """Serve the portal shell page."""
-        if portal.auth is not None:
-            allowed = portal.auth(request)
-            if hasattr(allowed, "__await__"):
-                allowed = await allowed
-            if not allowed:
-                return RedirectResponse(
-                    f"{portal.login_path}?next={request.url.path}",
-                    status_code=302,
-                )
+        if not await _allowed(portal, request):
+            return RedirectResponse(
+                f"{portal.login_path}?next={request.url.path}",
+                status_code=302,
+            )
 
         html = _build_shell_html(portal)
         return HTMLResponse(html)
 
+    async def apps_endpoint(request: Request) -> JSONResponse:
+        """The app list the bar draws. Behind the portal's own auth, like the page."""
+        if not await _allowed(portal, request):
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        return JSONResponse(
+            {
+                "title": portal.title,
+                "apps": [
+                    {
+                        "name": app.name,
+                        "path": app.path,
+                        "description": app.description,
+                        "icon": app.icon,
+                    }
+                    for app in portal.apps
+                ],
+            }
+        )
+
+    async def app_bar_endpoint(request: Request) -> FileResponse:
+        """The bar script. Public: it holds no data, and fetches the list itself."""
+        return FileResponse(
+            STATIC_DIR / "app-bar.js",
+            media_type="application/javascript",
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
     return [
         Route("/", endpoint=shell_endpoint, methods=["GET"]),
+        Route("/apps.json", endpoint=apps_endpoint, methods=["GET"]),
+        Route("/app-bar.js", endpoint=app_bar_endpoint, methods=["GET"]),
     ]
+
+
+async def _allowed(portal: Portal, request: Request) -> bool:
+    if portal.auth is None:
+        return True
+    allowed = portal.auth(request)
+    if hasattr(allowed, "__await__"):
+        allowed = await allowed
+    return bool(allowed)

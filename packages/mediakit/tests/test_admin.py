@@ -393,3 +393,42 @@ async def test_detail_shows_the_whole_image_not_a_square_crop(admin_client: Asyn
     response = await admin_client.get("/admin/assets/originals/aaa/photo_a.webp")
 
     assert "/iiif/originals/aaa/photo_a.webp/full/800,/0/default.webp" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Signed-out redirect and the portal's app bar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_pages_redirect_to_login_when_one_is_set(
+    mk_with_assets: MediaKit,
+) -> None:
+    """With login_url set, a signed-out visitor is sent to sign in and back."""
+    mk_with_assets.config.login_url = "/api/auth/login"
+    app = mk_with_assets._build_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        response = await c.get("/admin/upload?picker=1")
+    assert response.status_code == 302
+    assert response.headers["location"] == "/api/auth/login?next=%2Fadmin%2Fupload%3Fpicker%3D1"
+
+
+@pytest.mark.asyncio
+async def test_writes_still_answer_401_with_a_login_url(mk_with_assets: MediaKit) -> None:
+    mk_with_assets.config.login_url = "/api/auth/login"
+    app = mk_with_assets._build_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as c:
+        response = await c.post("/admin/assets/originals/aaa/photo_a.webp", data={"alt_text": "x"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_loads_the_app_bar_when_given_a_portal(mk_with_assets: MediaKit) -> None:
+    for portal_url, expected in ((None, False), ("/", True)):
+        mk_with_assets.config.portal_url = portal_url
+        app = mk_with_assets._build_app()
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver", headers=AUTH
+        ) as c:
+            response = await c.get("/admin")
+        assert ('<script src="/app-bar.js" defer></script>' in response.text) is expected

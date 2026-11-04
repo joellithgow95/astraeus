@@ -34,7 +34,7 @@ portal = Portal(
     apps=[
         PortalApp(
             name="Editor",
-            path="/editor/shell",
+            path="/editor/",
             description="Create and edit content documents",
             icon="✏️",
         ),
@@ -46,15 +46,9 @@ portal = Portal(
         ),
         PortalApp(
             name="Gateways",
-            path="/gateways/shell",
+            path="/gateways/",
             description="Sync data from external services",
             icon="🔄",
-        ),
-        PortalApp(
-            name="Chat",
-            path="/chat/shell",
-            description="AI-powered editing assistant",
-            icon="💬",
         ),
     ]
 )
@@ -78,8 +72,8 @@ app = compose_app(
     cms=cms,
     editor=editor,
     media=media,
-    chat=chat,
     gateways=gateway_admin,
+    feedback=feedback_admin,
     docs_url="https://github.com/ASneakyToast/astraeus#readme",
     github_url="https://github.com/ASneakyToast/astraeus",
 )
@@ -90,6 +84,36 @@ with auto-populated app cards. Lifespans are composed automatically.
 
 Visit `http://localhost:8000/` to see the portal.
 
+### Portal at the site root, beside a CMS that is also there
+
+When the CMS is mounted at `/` too (its public API at `/api/...`), splice the
+portal's routes in ahead of it instead of mounting it, or the portal's mount
+would answer every path:
+
+```python
+app = Starlette(routes=[*portal.routes, Mount("/editor", app=editor.app), Mount("/", app=cms.app)])
+```
+
+---
+
+## The app bar
+
+The portal also serves `app-bar.js`: a thin strip across the top of every
+admin page with a home link to the portal and a link to each app, the current
+one highlighted. A page loads it with one tag:
+
+```html
+<script src="/app-bar.js" defer></script>
+```
+
+The editor, gateway admin, feedback admin and mediakit add that tag when given
+`portal_url=` (mediakit: `MediakitConfig(portal_url=...)`); `compose_app` sets
+it on each for you. The bar reads the app list from `GET /apps.json`, which sits
+behind the portal's `auth` like the page. If that fails it still shows the home
+link. It sets `--astraeus-bar-h` on the page, so a layout sized to the viewport
+takes `calc(100dvh - var(--astraeus-bar-h, 0px))`, and it draws nothing inside
+an iframe (the media picker).
+
 ---
 
 ## PortalApp fields
@@ -97,7 +121,7 @@ Visit `http://localhost:8000/` to see the portal.
 | Field        | Required | Description                                      |
 |-------------|----------|--------------------------------------------------|
 | `name`       | Yes      | Human-readable app name (e.g. "Editor")          |
-| `path`       | Yes      | URL to the app's shell page (e.g. `/editor/shell`) |
+| `path`       | Yes      | URL to the app's shell page (e.g. `/editor/`) |
 | `description`| No       | One-line description shown on the card            |
 | `icon`       | No       | Emoji or icon character                           |
 | `tags`       | No       | List of tag strings for categorization            |
@@ -112,7 +136,9 @@ Pass a callable to protect the portal page:
 Portal(apps=apps, auth=lambda r: r.headers.get("X-Admin") == "secret")
 ```
 
-Unauthenticated visitors are redirected to the login path.
+Unauthenticated visitors are redirected to the login path, and `apps.json`
+answers 401. With starlette-cms, the usual guard is the session login:
+`auth=lambda r: check_session_auth(r, cms)`.
 
 ---
 
