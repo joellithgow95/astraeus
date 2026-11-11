@@ -1,0 +1,379 @@
+/**
+ * components/doodle-widget.js — freehand SVG doodle capture.
+ *
+ * Registered as the 'doodles' field widget (see field-widgets.js). Drawing
+ * happens directly on the live page, not in an isolated panel: the canvas
+ * is inserted as a child of the doodle's actual CSS anchor (the field
+ * marker's own parentElement — DoodleOverlay renders the marker and the
+ * decorative overlay as siblings, both direct children of whatever
+ * position:relative container it's invoked inside, which is definitionally
+ * the same element `placement` coordinates are measured from — not
+ * offsetParent, which depends on computed layout a test environment may not
+ * fully implement, and isn't actually a more correct answer here anyway),
+ * sized to the anchor plus a fixed bleed margin (Option B from the
+ * draw-surface review — bounded, so the coordinate math stays simple and a
+ * doodle can't wander into unrelated page content, while still letting it
+ * visually spill past the card's own edges).
+ *
+ * mode: 'inline' (no live page — e.g. the admin form, no anchor to draw
+ * against) falls back to a small self-contained canvas in the widget's own
+ * container instead.
+ */
+
+import { pointsToPathData, renderDrawingInto, strokesToDrawing } from './drawing.js'
+
+export { pointsToPathData }
+
+const MARGIN = 70 // px bleed around the anchor, validated interactively against Option A/B/C
+const EDGE_PAD = 4 // px — keeps a stroke right at the bounding edge from being clipped by the viewBox
+const FALLBACK_CANVAS_SIZE = 220 // px — inline-mode-only, no anchor to size against
+
+let _idCounter = 0
+function _nextId() {
+  _idCounter += 1
+  return `dd_${Date.now().toString(36)}_${_idCounter}`
+}
+
+function _round2(n) {
+  return Math.round(n * 100) / 100
+}
+
+
+/**
+ * Bounding box of every point across every stroke, in the same coordinate
+ * space the strokes were recorded in.
+ *
+ * @param {{x: number, y: number}[][]} strokes
+ */
+export function boundingBoxOf(strokes) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const stroke of strokes) {
+    for (const p of stroke) {
+      if (p.x < minX) minX = p.x
+      if (p.y < minY) minY = p.y
+      if (p.x > maxX) maxX = p.x
+      if (p.y > maxY) maxY = p.y
+    }
+  }
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY }
+}
+
+/**
+ * Convert a drawn-and-cropped stroke set into a doodle record, with
+ * placement computed relative to `anchorRect` (the doodle's real CSS
+ * positioning root) from where it was actually drawn on the draw canvas
+ * (which sits at `anchorRect` expanded by `MARGIN` on every side).
+ *
+ * @param {{x: number, y: number}[][]} nonEmptyStrokes
+ * @param {DOMRect} anchorRect
+ */
+export function strokesToDoodle(nonEmptyStrokes, anchorRect) {
+  const box = boundingBoxOf(nonEmptyStrokes)
+  const originX = box.minX - EDGE_PAD
+  const originY = box.minY - EDGE_PAD
+  const w = box.width + EDGE_PAD * 2
+  const h = box.height + EDGE_PAD * 2
+
+  const rebased = nonEmptyStrokes.map((stroke) => stroke.map((p) => ({ x: p.x - originX, y: p.y - originY })))
+
+  const topPct = ((originY - MARGIN) / anchorRect.height) * 100
+  const leftPct = ((originX - MARGIN) / anchorRect.width) * 100
+  const widthPct = (w / anchorRect.width) * 100
+
+  return {
+    id: _nextId(),
+    drawing: strokesToDrawing(rebased, { width: w, height: h }),
+    placement: {
+      base: {
+        mode: 'absolute',
+        top: { value: _round2(topPct), unit: '%' },
+        left: { value: _round2(leftPct), unit: '%' },
+        width: { value: _round2(widthPct), unit: '%' },
+      },
+    },
+  }
+}
+
+function _makeBtn(text, onClick, { subtle = false } = {}) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.textContent = text
+  btn.style.cssText = subtle
+    ? 'background:none;border:1px solid #d1d5db;border-radius:4px;padding:6px 12px;font-size:13px;cursor:pointer;color:#374151;'
+    : 'background:#2563eb;color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:13px;cursor:pointer;font-weight:500;'
+  btn.addEventListener('click', onClick)
+  return btn
+}
+
+/**
+ * Mirrors DoodleOverlay.astro's declBlock() — necessarily duplicated, not
+ * shared, since one runs at Astro build time (TS) and this runs live in the
+ * browser (plain JS) patching an already-rendered page. Keep in sync by hand
+ * if placement's shape ever changes.
+ */
+function _declBlock(p) {
+  if (p.mode === 'static') return 'position: static;'
+  const parts = ['position: absolute;']
+  for (const axis of ['top', 'left', 'right', 'bottom', 'width']) {
+    const v = p[axis]
+    if (v) parts.push(`${axis}: ${v.value}${v.unit};`)
+  }
+  return parts.join(' ')
+}
+
+/**
+ * Keep the already-rendered `.doodle-overlay` (a sibling of the field
+ * marker, inside `anchor`) in sync with `doodles` right after a save or
+ * remove — without this, a change is only visible in the small edit panel
+ * until the page is rebuilt (publish, then reload), which is a worse
+ * experience than every other field type already gives (e.g. the image
+ * field patches its <img> src live the same way, no reload needed).
+ */
+function _syncLiveOverlay(anchor, doodles) {
+  const overlay = anchor?.querySelector('.doodle-overlay')
+  if (!overlay) return
+
+  overlay.innerHTML = ''
+  for (const d of doodles) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'doodle-overlay__item')
+    svg.setAttribute('data-doodle-id', d.id)
+    svg.style.cssText = `${_declBlock(d.placement.base)} z-index:${d.z_index ?? 1};`
+    renderDrawingInto(svg, d.drawing)
+
+    overlay.appendChild(svg)
+  }
+}
+
+/** Wires shared pointer-draw behavior onto a canvas. Returns {strokes, redraw}. */
+function _wireDrawing(canvas) {
+  const g = canvas.getContext('2d')
+  g.strokeStyle = '#1a1a1a'
+  g.lineWidth = 2
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+
+  const state = { strokes: [], currentStroke: null }
+
+  function redraw() {
+    g.clearRect(0, 0, canvas.width, canvas.height)
+    for (const stroke of state.strokes) {
+      if (stroke.length < 2) continue
+      g.beginPath()
+      g.moveTo(stroke[0].x, stroke[0].y)
+      for (const p of stroke.slice(1)) g.lineTo(p.x, p.y)
+      g.stroke()
+    }
+  }
+
+  function pointFromEvent(e) {
+    const rect = canvas.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    // Not implemented in every test environment — capture is a nice-to-have
+    // (keeps the stroke going if the pointer leaves the canvas mid-drag),
+    // not load-bearing for the widget to function.
+    try { canvas.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+    state.currentStroke = [pointFromEvent(e)]
+    state.strokes.push(state.currentStroke)
+  })
+  canvas.addEventListener('pointermove', (e) => {
+    if (!state.currentStroke) return
+    state.currentStroke.push(pointFromEvent(e))
+    redraw()
+  })
+  canvas.addEventListener('pointerup', () => { state.currentStroke = null })
+  canvas.addEventListener('pointerleave', () => { state.currentStroke = null })
+
+  return { state, redraw }
+}
+
+/**
+ * Draw directly on the live page: the canvas is a child of `anchor` itself
+ * (the doodle's real CSS positioning root), sized to `anchor` plus MARGIN on
+ * every side, so the real post content is visible underneath while drawing
+ * and the captured position/size are real, not a placeholder.
+ */
+function _openOnPageDrawMode({ anchor, doodles, onDone }) {
+  if (getComputedStyle(anchor).position === 'static') anchor.style.position = 'relative'
+
+  // Compute the exact pixel box ourselves rather than lean on CSS auto-sizing
+  // — two different CSS footguns in a row here: (1) <canvas> is a replaced
+  // element (like <img>), so `position: absolute` + `inset` alone does NOT
+  // stretch it the way it would a plain <div> — it silently keeps its
+  // 300x150 intrinsic default; (2) adding explicit `width: 100%` alongside
+  // `inset` "fixes" that but over-constrains the box (left + width + right
+  // all definite), so the browser drops `right`/`bottom` and recomputes
+  // them — which cuts the canvas short on exactly those edges instead of
+  // extending MARGIN past them. Skip both by computing top/left/width/height
+  // in px directly; no auto-sizing involved at all.
+  const anchorRect = anchor.getBoundingClientRect()
+  const canvasW = Math.max(1, Math.round(anchorRect.width + MARGIN * 2))
+  const canvasH = Math.max(1, Math.round(anchorRect.height + MARGIN * 2))
+
+  const canvas = document.createElement('canvas')
+  canvas.className = '__doodle-onpage-canvas'
+  // The dashed border + faint tint mark the actual drawable boundary — with
+  // no visual cue at all, there's no way to tell how far you can draw before
+  // hitting the edge (found by trying to use this without it).
+  canvas.style.cssText = `position:absolute; top:-${MARGIN}px; left:-${MARGIN}px; width:${canvasW}px; height:${canvasH}px; z-index:9997; cursor:crosshair; touch-action:none; border:2px dashed rgba(255,184,108,0.55); border-radius:8px; background:rgba(255,184,108,0.04); box-sizing:border-box;`
+  anchor.appendChild(canvas)
+
+  canvas.width = canvasW
+  canvas.height = canvasH
+
+  const { state, redraw } = _wireDrawing(canvas)
+
+  const toolbar = document.createElement('div')
+  toolbar.className = '__doodle-onpage-toolbar'
+  toolbar.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483050;display:flex;gap:8px;background:#111827;border:1px solid #374151;border-radius:999px;padding:6px 8px;box-shadow:0 8px 30px rgba(0,0,0,0.4);'
+  document.body.appendChild(toolbar)
+
+  function cleanup() {
+    canvas.remove()
+    toolbar.remove()
+  }
+
+  toolbar.appendChild(_makeBtn('Clear', () => { state.strokes = []; redraw() }, { subtle: true }))
+  toolbar.appendChild(_makeBtn('Cancel', cleanup, { subtle: true }))
+  toolbar.appendChild(_makeBtn('Save doodle', () => {
+    const nonEmpty = state.strokes.filter((s) => s.length >= 2)
+    if (nonEmpty.length === 0) { cleanup(); return }
+
+    const anchorRect = anchor.getBoundingClientRect()
+    const doodle = strokesToDoodle(nonEmpty, anchorRect)
+    doodles.push(doodle)
+    cleanup()
+    onDone()
+  }))
+}
+
+/** No live anchor to draw against (e.g. the admin form) — small self-contained canvas. */
+function _openPanelCanvasFallback({ root, doodles, onDone }) {
+  root.querySelector('.__doodle-canvas-wrap')?.remove()
+
+  const wrap = document.createElement('div')
+  wrap.className = '__doodle-canvas-wrap'
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;'
+
+  const canvas = document.createElement('canvas')
+  canvas.className = '__doodle-canvas'
+  canvas.width = FALLBACK_CANVAS_SIZE
+  canvas.height = FALLBACK_CANVAS_SIZE
+  canvas.style.cssText = `width:${FALLBACK_CANVAS_SIZE}px;height:${FALLBACK_CANVAS_SIZE}px;border:1px solid #d1d5db;border-radius:6px;background:#fafafa;touch-action:none;cursor:crosshair;`
+  wrap.appendChild(canvas)
+
+  const { state, redraw } = _wireDrawing(canvas)
+
+  const btnRow = document.createElement('div')
+  btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;'
+  btnRow.appendChild(_makeBtn('Clear', () => { state.strokes = []; redraw() }, { subtle: true }))
+  btnRow.appendChild(_makeBtn('Cancel', () => wrap.remove(), { subtle: true }))
+  btnRow.appendChild(_makeBtn('Save doodle', () => {
+    const nonEmpty = state.strokes.filter((s) => s.length >= 2)
+    if (nonEmpty.length === 0) { wrap.remove(); return }
+
+    // No real anchor, so no meaningful placement to compute — same fixed
+    // placeholder position this widget always used before draw-on-page.
+    doodles.push({
+      id: _nextId(),
+      drawing: strokesToDrawing(nonEmpty, { width: FALLBACK_CANVAS_SIZE, height: FALLBACK_CANVAS_SIZE }),
+      placement: {
+        base: { mode: 'absolute', top: { value: 20, unit: '%' }, left: { value: 20, unit: '%' }, width: { value: 64, unit: 'px' } },
+      },
+    })
+    wrap.remove()
+    onDone()
+  }))
+  wrap.appendChild(btnRow)
+  root.appendChild(wrap)
+}
+
+/**
+ * @param {object[] | null | undefined} value — current doodles array
+ * @param {{ container: HTMLElement, anchorEl?: Element, close?: () => void, onSave: (value: object[]) => void }} ctx
+ */
+export function createDoodleWidget(value, ctx) {
+  const doodles = Array.isArray(value) ? [...value] : []
+  const anchorCandidate = ctx.anchorEl?.parentElement
+  const anchor = anchorCandidate instanceof HTMLElement ? anchorCandidate : null
+
+  const root = document.createElement('div')
+  root.style.cssText = 'display:flex;flex-direction:column;gap:10px;min-width:240px;'
+  ctx.container.appendChild(root)
+
+  const listEl = document.createElement('div')
+  listEl.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+  root.appendChild(listEl)
+
+  function renderList() {
+    listEl.innerHTML = ''
+
+    if (doodles.length === 0) {
+      const empty = document.createElement('p')
+      empty.textContent = 'No doodles yet.'
+      empty.style.cssText = 'margin:0;font-size:12px;color:#6b7280;'
+      listEl.appendChild(empty)
+    }
+
+    doodles.forEach((doodle, i) => {
+      const row = document.createElement('div')
+      row.className = '__doodle-row'
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;'
+
+      const preview = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      preview.setAttribute('viewBox', `0 0 ${FALLBACK_CANVAS_SIZE} ${FALLBACK_CANVAS_SIZE}`)
+      preview.setAttribute('width', '32')
+      preview.setAttribute('height', '32')
+      preview.style.cssText = 'border:1px solid #e5e7eb;border-radius:4px;background:#fafafa;'
+      preview.style.color = '#1a1a1a'
+      renderDrawingInto(preview, doodle.drawing)
+      row.appendChild(preview)
+
+      const removeBtn = document.createElement('button')
+      removeBtn.type = 'button'
+      removeBtn.className = '__doodle-remove'
+      removeBtn.textContent = 'Remove'
+      removeBtn.style.cssText = 'background:none;border:none;color:#6b7280;cursor:pointer;font-size:12px;padding:0;'
+      removeBtn.addEventListener('click', () => {
+        doodles.splice(i, 1)
+        onDoodlesChanged()
+      })
+      row.appendChild(removeBtn)
+
+      listEl.appendChild(row)
+    })
+  }
+
+  /** Called after every add/remove — keeps the panel list, the live
+   * on-page rendering, and the persisted draft all in sync with each other,
+   * in that order, every time. */
+  function onDoodlesChanged() {
+    renderList()
+    _syncLiveOverlay(anchor, doodles)
+    ctx.onSave([...doodles])
+  }
+
+  root.appendChild(_makeBtn('+ Draw new doodle', () => {
+    if (anchor) {
+      // The live page is the drawing surface — get the small panel out of
+      // the way while you draw on the real content.
+      ctx.close?.()
+      _openOnPageDrawMode({ anchor, doodles, onDone: onDoodlesChanged })
+    } else {
+      _openPanelCanvasFallback({ root, doodles, onDone: onDoodlesChanged })
+    }
+  }))
+
+  renderList()
+  // The page's static render reflects whatever was published at build time
+  // — sync once up front too, so a pending draft doodle from an earlier
+  // session (saved but never published) is visible as soon as you open
+  // edit mode, not just after this session's own edits.
+  _syncLiveOverlay(anchor, doodles)
+}

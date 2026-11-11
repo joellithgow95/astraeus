@@ -382,3 +382,46 @@ class DocumentRef(_BaseField):
         meta.update(self.ref_meta())
         meta["field_type"] = "document_ref"
         return meta
+
+
+@dataclass
+class DoodleField(_BaseField):
+    """
+    A list of freehand SVG doodles, each a ``Drawing`` with a responsive
+    placement spec (``starlette_cms.drawing.Doodle``).
+
+    Stored as a JSON array in the document body and validated on save,
+    tagged with its own field_type so the editor mounts a draw/place widget
+    instead of the generic block canvas. A document can have zero, one, or
+    many doodles.
+
+    Example::
+
+        doodles: list = DoodleField(label="Doodles")
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "doodles"
+        return m
+
+
+@dataclass
+class DrawingField(_BaseField):
+    """
+    One hand-drawn shape (``starlette_cms.drawing.Drawing``): a viewBox and
+    its SVG paths.
+
+    Stored as a JSON object and validated on save. The editor mounts a
+    drawing pad for it (field_type ``drawing``). A plain field, so it saves
+    last-writer-wins like a title (ADR 027).
+
+    Example::
+
+        shape: dict = DrawingField(label="Shape")
+    """
+
+    def field_meta(self) -> dict[str, Any]:
+        m = super().field_meta()
+        m["field_type"] = "drawing"
+        return m

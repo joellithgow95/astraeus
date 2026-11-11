@@ -53,9 +53,14 @@ import { createLayout } from './components/layout.js'
 import { startFieldSync, unsavedFields } from './field-sync.js'
 import { hasMedia } from './media/media-api.js'
 import { MediaSection } from './media/media-library.js'
+import { registerFieldWidget } from './field-widgets.js'
+import { createDrawingPad } from './components/drawing-pad.js'
 
 /** The Media section, made in buildShell when the editor has a library. */
 let mediaSection = null
+
+// DrawingField (one hand-drawn shape, e.g. a taste shape) draws in the form.
+registerFieldWidget('drawing', createDrawingPad)
 
 /**
  * Mirror the active changeset into shell state for the header.

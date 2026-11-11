@@ -3,6 +3,8 @@
  * Fetches the draft body, replaces static content with live editable fields.
  */
 import { getActiveChangesetId, setActiveChangesetId } from '../changeset-store.js'
+import { getFieldWidget } from '../field-widgets.js'
+import { openFloatingPanel } from '../components/floating-panel.js'
 
 let _navSuppressed = false
 
@@ -44,8 +46,18 @@ export async function activateEditMode(element, { cmsBase, toolbar }) {
   const fieldEls = element.querySelectorAll('[data-cms-field]')
   for (const fieldEl of fieldEls) {
     const fieldName = fieldEl.dataset.cmsField
-    const fieldValue = body[fieldName]
-    if (fieldValue === undefined) continue
+    let fieldValue = body[fieldName]
+    if (fieldValue === undefined) {
+      // A field's key can be absent from a document's stored body — most
+      // often because the field type was added to the schema after this
+      // particular document was last saved (nothing backfills existing rows).
+      // Registry-dispatched field types are exactly the mechanism meant to
+      // support that: a plugin field type shouldn't require every existing
+      // document to be re-saved before it becomes editable. Untyped/legacy
+      // fields keep the original behavior — genuinely absent means skip.
+      if (!getFieldWidget(fieldEl.dataset.cmsFieldType)) continue
+      fieldValue = null
+    }
 
     // On a listing, the body is shown only as a truncated preview. Don't drop
     // the full editor into the card straight away — gate it behind an
@@ -148,6 +160,35 @@ function attachCollapsibleField(preview, { fieldName, fieldValue, docId, cmsBase
 
 export async function activateField(el, { fieldName, fieldValue, docId, cmsBase, toolbar }) {
   const tag = el.tagName.toLowerCase()
+
+  // ── 0. Registry-dispatched field types (ADR 020) ────────────────────────────
+  // An explicit data-cms-field-type wins over every value-shape guess below —
+  // this is what lets a field type whose value happens to be e.g. an array
+  // (like doodles) avoid colliding with case 4's tags-editor guess. Nothing
+  // built-in is registered here; only plugin-added field types (e.g. doodles)
+  // are, so every existing field keeps working via the chain below unchanged.
+  const widget = getFieldWidget(el.dataset.cmsFieldType)
+  if (widget) {
+    _addEditAffordance(el)
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const { container, close } = openFloatingPanel(el, { className: '__cms-field-panel' })
+      widget(fieldValue, {
+        mode: 'overlay',
+        container,
+        anchorEl: el,
+        close,
+        onSave: async (newValue) => {
+          fieldValue = newValue
+          close()
+          toolbar.setState('saving')
+          await patchField(cmsBase, docId, fieldName, newValue, toolbar)
+          toolbar.setState('editing')
+        },
+      })
+    })
+    return
+  }
 
   // ── 1. Rich text fields (ProseMirror JSON doc) ──────────────────────────────
   if (typeof fieldValue === 'object' && fieldValue !== null && fieldValue.type === 'doc') {
@@ -300,6 +341,12 @@ function _addEditAffordance(el) {
   el.style.outline = '1px dashed rgba(37, 99, 235, 0.5)'
   el.style.cursor = 'pointer'
   el.title = 'Click to edit'
+  // A field's own render CSS may set pointer-events: none for its unactivated,
+  // purely-decorative display (e.g. a doodle overlay, so it never blocks
+  // clicks on real content beneath it) — activation always needs to override
+  // that on this element specifically, or the click that's supposed to open
+  // its editor can never reach it in the first place.
+  el.style.pointerEvents = 'auto'
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -378,30 +425,8 @@ function _openMarkdownModal(currentValue, onSave) {
 // ────────────────────────────────────────────────────────────────────────────
 
 function _openTagsEditor(anchorEl, currentTags, onSave) {
-  // Close any existing tags panel
-  document.querySelector('.__cms-tags-panel')?.remove()
-
   const tags = [...currentTags]
-  const rect = anchorEl.getBoundingClientRect()
-
-  const panel = document.createElement('div')
-  panel.className = '__cms-tags-panel'
-  Object.assign(panel.style, {
-    position: 'fixed',
-    top: `${rect.bottom + window.scrollY + 6}px`,
-    left: `${rect.left + window.scrollX}px`,
-    zIndex: '99999',
-    background: '#fff',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    padding: '12px',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
-    minWidth: '280px',
-    maxWidth: '420px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  })
+  const { container: panel, close } = openFloatingPanel(anchorEl, { className: '__cms-tags-panel' })
 
   function render() {
     panel.innerHTML = ''
@@ -444,7 +469,6 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { addBtn.click(); e.preventDefault() }
-      if (e.key === 'Escape') { panel.remove() }
     })
 
     inputRow.appendChild(input)
@@ -454,12 +478,12 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
     const btnRow = document.createElement('div')
     Object.assign(btnRow.style, { display: 'flex', gap: '6px', justifyContent: 'flex-end', borderTop: '1px solid #f3f4f6', paddingTop: '8px' })
 
-    const cancelBtn = _makeBtn('Cancel', '#6b7280', () => panel.remove())
+    const cancelBtn = _makeBtn('Cancel', '#6b7280', () => close())
     cancelBtn.style.padding = '4px 10px'
     cancelBtn.style.fontSize = '13px'
 
     const saveBtn = _makeBtn('Save', '#2563eb', async () => {
-      panel.remove()
+      close()
       await onSave([...tags])
     })
     saveBtn.style.padding = '4px 10px'
@@ -473,17 +497,6 @@ function _openTagsEditor(anchorEl, currentTags, onSave) {
   }
 
   render()
-  document.body.appendChild(panel)
-
-  // Click outside closes and discards
-  function onOutsideClick(e) {
-    if (!panel.contains(e.target) && e.target !== anchorEl) {
-      panel.remove()
-      document.removeEventListener('click', onOutsideClick, true)
-    }
-  }
-  // Defer listener so the opening click doesn't immediately close it
-  setTimeout(() => document.addEventListener('click', onOutsideClick, true), 0)
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -3,8 +3,9 @@
  * Tests for components/fields.js — field widget dispatch.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { fieldWidget } from '../components/fields.js'
+import { registerFieldWidget, _resetFieldWidgetsForTests } from '../field-widgets.js'
 
 describe('fieldWidget dispatch table', () => {
   it('rich_text field_type → prosemirror', () => {
@@ -85,6 +86,34 @@ describe('fieldWidget dispatch table', () => {
   it('default string → input', () => {
     expect(fieldWidget('title', { type: 'string' }, {})).toBe('input')
     expect(fieldWidget('author', { type: 'string' }, {})).toBe('input')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Registry-dispatched field types (ADR 020)
+// ---------------------------------------------------------------------------
+
+describe('fieldWidget: registry precedence', () => {
+  beforeEach(() => {
+    _resetFieldWidgetsForTests()
+  })
+
+  it('a registered field_type dispatches to "registry"', () => {
+    registerFieldWidget('doodles', () => {})
+    expect(fieldWidget('doodles', { type: 'array' }, { field_type: 'doodles' })).toBe('registry')
+  })
+
+  it('an unregistered field_type falls through to the built-in table', () => {
+    // 'rich_text' has no registry entry — must still resolve via the
+    // hardcoded branch below, unaffected by the registry existing at all.
+    expect(fieldWidget('body', { type: 'object' }, { field_type: 'rich_text' })).toBe('prosemirror')
+  })
+
+  it('a registered type is never shadowed by a same-named built-in heuristic', () => {
+    // If a plugin ever registers a field_type that collides with a name the
+    // heuristics below would otherwise catch, the registry must still win.
+    registerFieldWidget('image', () => {})
+    expect(fieldWidget('cover_image', { type: 'string' }, { field_type: 'image' })).toBe('registry')
   })
 })
 

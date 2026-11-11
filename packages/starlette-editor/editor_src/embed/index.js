@@ -7,6 +7,8 @@
  * IMPORTANT: document.currentScript is only available during synchronous
  * script execution (not after any await). Capture it before the first await.
  */
+import { registerFieldWidget } from '../field-widgets.js'
+import { createDoodleWidget } from '../components/doodle-widget.js'
 
 // Capture synchronously before any await — document.currentScript is null after
 const scriptEl = document.currentScript
@@ -14,6 +16,11 @@ const scriptUrl = scriptEl ? new URL(scriptEl.src) : null
 const cmsBase = scriptUrl ? scriptUrl.origin : null
 const mediaBase = scriptEl?.dataset?.cmsMediaBase || null
 const reloadUrl = scriptEl?.dataset?.reloadUrl || null
+
+// Registry-dispatched field widgets (ADR 020) — one registration per field
+// type, shared with the admin form (fields.js registers it too, separately,
+// once that surface adopts doodles — see phase 7 of the doodles plan).
+registerFieldWidget('doodles', createDoodleWidget)
 
 // Expose config globally so components/image-picker.js and edit-mode.js can read it
 if (cmsBase) {
