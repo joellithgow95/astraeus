@@ -105,6 +105,13 @@ A document is written two ways: the **collab path** (steps applied in order by a
 - **Plain fields (title, tags, image, dates, refs) are last-writer-wins per field, and live:** every PATCH broadcasts the values it set as a `document.fields` event on `/api/events`, and the shell saves each changed field on its own (`editor_src/field-sync.js`), so there is no Save button for an existing document. Never put field values in a webhook payload. Lifecycle actions (publish, discard, changesets) stay commands, and any that changes a rich-text field must tell the authority (`CollabManager.apply_external_update`).
 - New code that writes rich text from outside the editor goes through `CollabManager` (`edit_content`, `apply_external_update`), never straight to `draft_body`.
 
+### Every feature has two editing surfaces: the shell and the live site
+Content is edited in two places, and both are first-class: the **editor shell** (`/editor/`, forms generated from the block schema) and the **embed** (`editor_src/embed/`, the toolbar and inline editing on the published static site, see the editor README *Inline editing on a static site*). Joel previews and does his final edits on the live site before publishing, so a feature that only works in the shell is not done. When you add or change a field type, document type, slice, or anything that changes how a document renders:
+- **Edit:** it needs a widget on both surfaces (`registerFieldWidget` is shared; the embed registers its own in `embed/index.js`), or the PR says why the embed doesn't need one.
+- **Preview drafts:** a draft of it must show on the site before it is published, through the toolbar's lens (*Live + all drafts*, *Live + a changeset*), including a document type with no page or card of its own (it shows through whatever references it). Check what `embed/drafts.js` draws for it, not only what the shell shows.
+- **UX on both:** when a request names only one surface, think through the other and say in the PR what it looks like there; ask Joel if the right behaviour isn't obvious.
+- **Verify on both:** for a change to the embed, run it against a page that uses it (a site's listing with a draft in a changeset), not only the Vitest suite.
+
 ### Testing
 - Every public function gets a test
 - **Anything that touches draft, publish, changeset or sync-state semantics is tested against a real in-process CMS** (below), never against mocked HTTP: a mock can only say what you told it the CMS does. `respx` is for faking *external* services (iNaturalist, Spotify) and for pinning the request shape of pure client plumbing

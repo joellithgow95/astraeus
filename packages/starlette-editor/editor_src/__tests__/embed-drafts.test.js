@@ -180,11 +180,49 @@ describe('choosing a lens', () => {
     expect(getActiveChangesetId()).toBe('cs-working')
   })
 
-  it('does not change the page before Edit is pressed', async () => {
+  it('updates the page at once, before Edit is pressed, without making drafts editable', async () => {
+    setLens(LENS_PROD)
     fakeCms({ docs: { d1: draft('d1', 'Unreleased') } })
     const toolbar = newToolbar()
-    await toolbar._setLens(LENS_ALL)
+    await flush()
     expect(feedIds()).toEqual(['live-1'])
+
+    await toolbar._setLens(LENS_ALL)
+    expect(feedIds()).toEqual(['d1', 'live-1'])
+    const title = document.querySelector('[data-cms-id="d1"] [data-cms-field="title"]')
+    expect(title.textContent).toBe('Unreleased')
+    expect(title.contentEditable).not.toBe('true')
+
+    await toolbar._setLens(LENS_PROD)
+    expect(feedIds()).toEqual(['live-1'])
+  })
+})
+
+describe('loading the page', () => {
+  it('draws the drafts the remembered lens names, before Edit', async () => {
+    setLens(changesetLens('cs-a'))
+    fakeCms({
+      docs: { d1: draft('d1', 'Staged'), d2: draft('d2', 'Elsewhere') },
+      changesets: [{ id: 'cs-a', title: 'Staging', documents: [{ id: 'd1', doc_type: 'blog_post' }] }],
+    })
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+    expect(feedIds()).toEqual(['d1', 'live-1'])
+  })
+
+  it('draws nothing extra on live only', async () => {
+    setLens(LENS_PROD)
+    fakeCms({ docs: { d1: draft('d1', 'Unreleased') } })
+    newToolbar()
+    await flush()
+    expect(feedIds()).toEqual(['live-1'])
+  })
+
+  it('does not draw a draft twice when Edit is pressed while the page is still loading drafts', async () => {
+    fakeCms({ docs: { d1: draft('d1', 'Unreleased'), 'live-1': live('live-1', 'Live post') } })
+    const toolbar = newToolbar() // starts the first sync
+    await toolbar._startEditing()
+    expect(feedIds()).toEqual(['d1', 'live-1'])
   })
 })
 
