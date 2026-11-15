@@ -70,6 +70,9 @@ export class EditToolbar {
     document.body.appendChild(this.el)
     this._render()
     this._loadChangesets()
+    // Show the drafts the picker names straight away, before Edit: a lens is a
+    // preview first. Read-only until Edit makes them editable.
+    if (this.lens !== LENS_PROD) this._syncDraftCards({ activate: false })
   }
 
   _render() {
@@ -208,21 +211,30 @@ export class EditToolbar {
 
   /**
    * Change which drafts show. Picking a changeset also makes it the one edits
-   * are saved into, so what you see is what you are working in. While editing
-   * the page updates at once; otherwise it applies when you press Edit.
+   * are saved into, so what you see is what you are working in. The page
+   * updates at once either way; while editing, the new cards are editable too.
    */
   async _setLens(lens) {
     this.lens = lens
     setLens(lens)
     const csId = changesetOfLens(lens)
     if (csId) setActiveChangesetId(csId)
-    if (this.state === 'editing' || this.state === 'saving') {
-      await this._syncDraftCards({ activate: true })
-    }
+    const editing = this.state === 'editing' || this.state === 'saving'
+    await this._syncDraftCards({ activate: editing })
   }
 
-  /** Draw cards for the unpublished posts the lens asks for; optionally make them editable. */
-  async _syncDraftCards({ activate }) {
+  /**
+   * Draw cards for the unpublished posts the lens asks for; optionally make them
+   * editable. Runs one at a time: the first sync starts on page load, and an
+   * Edit or a lens change during it would otherwise draw the same draft twice.
+   */
+  _syncDraftCards({ activate }) {
+    const run = () => this._syncDraftCardsNow({ activate })
+    this._draftSync = (this._draftSync ?? Promise.resolve()).then(run, run)
+    return this._draftSync
+  }
+
+  async _syncDraftCardsNow({ activate }) {
     if (!findDraftSlots().length) return
     try {
       const { added } = await syncDraftCards({ cmsBase: this.cmsBase, lens: this.lens })

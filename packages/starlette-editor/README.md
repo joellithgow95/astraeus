@@ -148,7 +148,7 @@ A site loads `/editor/embed.js` and the editor edits the page in place when you 
 
 ### Showing drafts on a listing
 
-A static site is built from published documents, so a post that has never been published has no card to edit. A listing can opt in to having the editor draw them in the browser, while editing:
+A static site is built from published documents, so a post that has never been published has no card to edit. A listing can opt in to having the editor draw them in the browser for a logged-in visitor:
 
 ```html
 <div data-cms-list="blog_post"> …the built cards… </div>
@@ -168,7 +168,7 @@ A feed can show several document types: name them space-separated (`data-cms-lis
 
 The template holds one card, built from the same markup and classes as a real one so the site's own styles apply. `data-cms-fill="<field>"` sets that element's text from the draft; `data-cms-fill-format` is `date` or `excerpt` (plain text of a rich-text or text field, shortened). Fields the editor can edit (`data-cms-field`) are editable on the drawn card; a template with none draws a read-only preview.
 
-The toolbar's picker decides which drafts appear: **Live + all drafts** (the default), **Live only**, or **Live + one open changeset**. Choosing a changeset also makes it the one edits are saved into. The choice is remembered per browser. Drawn drafts are labelled "Draft · not live"; live posts with unpublished edits are labelled "Unpublished edits". Neither Discard nor the single-document Publish fallback touches a drawn draft, so a post you only looked at is never wiped or shipped.
+The toolbar's picker decides which drafts appear: **Live + all drafts** (the default), **Live only**, or **Live + one open changeset**. The page follows it at once: the drafts it names are drawn on page load and redrawn when you pick another, read-only until you press **Edit**, which makes them editable like the built cards. Choosing a changeset also makes it the one edits are saved into. The choice is remembered per browser. Drawn drafts are labelled "Draft · not live"; live posts with unpublished edits are labelled "Unpublished edits". Neither Discard nor the single-document Publish fallback touches a drawn draft, so a post you only looked at is never wiped or shipped.
 
 **Publish** ships the changeset you are working in. If this browser has not picked one (a phone, a fresh login), it ships the CMS's default changeset (`CMS(default_changeset=…)`, [ADR 025](../../docs/decisions/025-default-changeset.md)), and the confirm names it and how many documents it holds. With no default and nothing picked, it publishes the one post on the page.
 
