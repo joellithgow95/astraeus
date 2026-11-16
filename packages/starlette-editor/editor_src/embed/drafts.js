@@ -37,6 +37,22 @@
  *   changed    ids whose content changed since the last preview, for the site's caches
  *   waitUntil(promise)  the site hands back its rendering, which the editor awaits
  * A site that does not listen gets the template's text alone.
+ *
+ * Where a drawn card goes. A feed split over pages (by quarter, say) tells the
+ * editor which dates each page's list holds, and each card its date, so a
+ * draft lands among the live posts where it will publish, on its own page:
+ *
+ *   <div data-cms-list="blog_post" data-cms-list-from="2026-10-01" data-cms-list-until="2027-01-01">
+ *     <article data-cms-id="…" data-cms-date="2026-11-03T00:00:00.000Z">…</article>
+ *
+ *   data-cms-list-from / -until   ISO dates, from inclusive, until exclusive; either
+ *                                 may be left out (open-ended). Leave `until` out on
+ *                                 the newest page: drafts with no date land there.
+ *   data-cms-list-date            the field holding a document's date (default publish_date)
+ *   data-cms-date                 on a card, its date; drawn cards get it too
+ *
+ * Cards are kept newest first; a draft goes above live posts of the same date.
+ * A list with no dated cards gets new drafts on top, as before.
  */
 
 const LENS_KEY = 'astraeus:draftLens'
@@ -49,6 +65,9 @@ const CHANGESET_PREFIX = 'cs:'
 export const DEFAULT_LENS = LENS_ALL
 
 const PAGE_LIMIT = 100
+
+/** A value for a double-quoted attribute selector. */
+export const q = (value) => String(value ?? '').replace(/["\\]/g, '\\$&')
 
 export const changesetLens = (id) => `${CHANGESET_PREFIX}${id}`
 
@@ -242,6 +261,47 @@ export function renderDraftCard(template, doc) {
 // Sync
 // ────────────────────────────────────────────────────────────────────────────
 
+/** A date value as epoch ms, or null. */
+function toTime(value) {
+  if (value == null || value === '') return null
+  const t = new Date(value).valueOf()
+  return Number.isNaN(t) ? null : t
+}
+
+/** The date of `doc` that orders it in `list`, as epoch ms, or null. */
+export function docTime(list, doc) {
+  return toTime(doc?.body?.[list.dataset.cmsListDate || 'publish_date'])
+}
+
+/** Whether `list` holds a document dated `time` (null: no date). */
+export function listHolds(list, time) {
+  const from = toTime(list.dataset.cmsListFrom)
+  const until = toTime(list.dataset.cmsListUntil)
+  if (time == null) return until == null // undated: the newest page, where a new post lands
+  return (from == null || time >= from) && (until == null || time < until)
+}
+
+/**
+ * Put `card` (dated `time`) where it belongs in `list`: newest first, above
+ * live posts of the same date. Undated, or in a list with no dated cards: on top.
+ */
+export function placeCard(list, card, time) {
+  if (time == null) card.removeAttribute('data-cms-date')
+  else card.setAttribute('data-cms-date', new Date(time).toISOString())
+  const dated = [...list.children].filter((el) => el !== card && el.hasAttribute('data-cms-date'))
+  if (time == null || !dated.length) {
+    if (list.firstElementChild !== card) list.prepend(card)
+    return
+  }
+  const next = dated.find((el) => (toTime(el.dataset.cmsDate) ?? -Infinity) <= time)
+  if (next) {
+    if (card.nextElementSibling !== next) list.insertBefore(card, next)
+  } else {
+    const last = dated[dated.length - 1]
+    if (last.nextElementSibling !== card) last.after(card)
+  }
+}
+
 /**
  * Bring each draft-capable list on the page in line with the lens: add cards
  * for unpublished posts it asks for, drop the ones it no longer does, and mark
@@ -275,21 +335,24 @@ export async function syncDraftCards({ cmsBase, lens, root = document }) {
 
     if (!template) continue
 
-    // Only this type's cards: a feed shared by several types syncs each in turn.
-    const wanted = new Map(docs.map((d) => [d.id, d]))
+    // Only this type's cards: a feed shared by several types syncs each in
+    // turn. A draft dated outside this list's range belongs on another page.
+    const wanted = new Map(docs.filter((d) => listHolds(list, docTime(list, d))).map((d) => [d.id, d]))
     for (const card of list.querySelectorAll('[data-cms-draft-card]')) {
       if (card.dataset.cmsType === docType && !wanted.has(card.dataset.cmsId)) card.remove()
     }
 
     const onPage = new Set([...root.querySelectorAll('[data-cms-id]')].map((el) => el.dataset.cmsId))
-    const dateOf = (d) => new Date(d.body?.publish_date ?? 0).valueOf() || 0
-    const fresh = docs
-      .filter((d) => !onPage.has(d.id))
-      .sort((a, b) => dateOf(a) - dateOf(b)) // oldest first: each prepend lands above the last
-    for (const doc of fresh) {
-      const card = renderDraftCard(template, doc)
-      list.prepend(card)
-      added.push(card)
+    const byDate = [...wanted.values()].sort((a, b) => (docTime(list, a) ?? Infinity) - (docTime(list, b) ?? Infinity))
+    for (const doc of byDate) { // oldest first, so undated or unordered lists stack newest on top
+      let card = list.querySelector(`[data-cms-draft-card][data-cms-id="${q(doc.id)}"]`)
+      if (!card) {
+        if (onPage.has(doc.id)) continue // a live card already shows it
+        card = renderDraftCard(template, doc)
+        added.push(card)
+      }
+      // Drawn or moved: a draft whose date changed goes where it now belongs.
+      placeCard(list, card, docTime(list, doc))
     }
     // Every draft card, new or already drawn: the site draws what the template can't.
     for (const card of list.querySelectorAll('[data-cms-draft-card]')) {

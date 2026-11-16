@@ -539,3 +539,56 @@ describe('asking the site to draw a card', () => {
     expect(seen.map((x) => x.id)).toEqual(['live-1'])
   })
 })
+
+describe('where a drawn draft lands', () => {
+  const dated = (id, title, publish_date) => ({ ...draft(id, title), body: { ...draft(id, title).body, publish_date } })
+  /** One quarter's page of a feed: Q3 2026, with two live posts. */
+  function mountQuarter({ until = '2026-10-01' } = {}) {
+    document.body.innerHTML = `
+      <div data-cms-list="blog_post" data-cms-list-from="2026-07-01" ${until ? `data-cms-list-until="${until}"` : ''} id="feed">
+        <article data-cms-id="live-sep" data-cms-type="blog_post" data-cms-date="2026-09-10T00:00:00.000Z"></article>
+        <article data-cms-id="live-jul" data-cms-type="blog_post" data-cms-date="2026-07-05T00:00:00.000Z"></article>
+      </div>
+      <template data-cms-draft-template="blog_post"><article><span data-cms-fill="title"></span></article></template>`
+  }
+
+  it('goes among the live posts by date, newest first', async () => {
+    mountQuarter()
+    fakeCms({ docs: { aug: dated('aug', 'August', '2026-08-01'), late: dated('late', 'Late Sept', '2026-09-30'), first: dated('first', 'July 1', '2026-07-01') } })
+    await newToolbar()._draftSync
+    expect(feedIds()).toEqual(['late', 'live-sep', 'aug', 'live-jul', 'first'])
+  })
+
+  it('leaves out a draft dated in another page\'s range', async () => {
+    mountQuarter()
+    fakeCms({ docs: { old: dated('old', '2025 draft', '2025-03-01'), next: dated('next', 'Q4', '2026-11-01') } })
+    await newToolbar()._draftSync
+    expect(feedIds()).toEqual(['live-sep', 'live-jul'])
+  })
+
+  it('puts an undated draft on top of the newest page only', async () => {
+    mountQuarter({ until: '' })
+    fakeCms({ docs: { nodate: dated('nodate', 'No date', null) } })
+    await newToolbar()._draftSync
+    expect(feedIds()).toEqual(['nodate', 'live-sep', 'live-jul'])
+
+    mountQuarter()
+    await newToolbar()._draftSync
+    expect(feedIds()).toEqual(['live-sep', 'live-jul'])
+  })
+
+  it('moves a drawn draft when its date changes', async () => {
+    mountQuarter()
+    const docs = { d: dated('d', 'Moving', '2026-08-01') }
+    fakeCms({ docs })
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+    expect(feedIds()).toEqual(['live-sep', 'd', 'live-jul'])
+    docs.d = dated('d', 'Moving', '2026-09-20')
+    await toolbar._syncDraftCards({ activate: false })
+    expect(feedIds()).toEqual(['d', 'live-sep', 'live-jul'])
+    docs.d = dated('d', 'Moving', '2026-12-20')
+    await toolbar._syncDraftCards({ activate: false })
+    expect(feedIds()).toEqual(['live-sep', 'live-jul'])
+  })
+})
