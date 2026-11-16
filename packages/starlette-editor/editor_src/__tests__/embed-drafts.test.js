@@ -50,6 +50,7 @@ function fakeCms({ docs = {}, changesets = [], failDrafts = false } = {}) {
     if (u.pathname === '/api/documents') {
       if (failDrafts && u.searchParams.get('published') === 'false') return { ok: false, status: 500, json: async () => ({}) }
       if (u.searchParams.get('published') === 'false') return json({ documents: Object.values(docs).filter((d) => !d.published) })
+      if (u.searchParams.get('has_draft') === 'true') return json({ documents: Object.values(docs).filter((d) => d.published && d.has_draft) })
       return json({ documents: [] })
     }
     const single = u.pathname.match(/^\/api\/documents\/([^/]+)$/)
@@ -76,6 +77,8 @@ const feedIds = () => [...document.querySelectorAll('#feed [data-cms-id]')].map(
 beforeEach(() => {
   localStorage.clear()
   mountPage()
+  // The live redraw channel (live-preview.js) is tested on its own.
+  vi.stubGlobal('WebSocket', class { close() {} })
 })
 
 afterEach(() => {
@@ -452,5 +455,87 @@ describe('Publish targets the changeset drafts collect in', () => {
 
     expect(posts).toEqual([])
     expect(confirmSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('asking the site to draw a card', () => {
+  const previews = () => {
+    const seen = []
+    document.addEventListener('astraeus:preview', (e) => seen.push({ id: e.target.dataset.cmsId, detail: e.detail }))
+    return seen
+  }
+
+  it('sends each drawn draft to the site, and waits for it to draw', async () => {
+    const seen = previews()
+    let drawn = false
+    document.addEventListener('astraeus:preview', (e) => {
+      e.detail.waitUntil(new Promise((r) => setTimeout(() => { drawn = true; r() }, 5)))
+    })
+    fakeCms({ docs: { d1: draft('d1', 'Unreleased') } })
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+
+    expect(drawn).toBe(true)
+    expect(seen.map((s) => s.id)).toEqual(['d1'])
+    expect(seen[0].detail.doc.body.title).toBe('Unreleased')
+    expect(seen[0].detail.cmsBase).toBe(CMS)
+    expect(seen[0].detail.inLens('anything')).toBe(true) // all drafts
+  })
+
+  it('shows a live post with its unpublished edits while the lens includes it, and as built after', async () => {
+    const seen = previews()
+    const edited = { ...live('live-1', 'Live post'), has_draft: true, body: { ...live('live-1', 'x').body, title: 'Edited title' } }
+    fakeCms({
+      docs: { 'live-1': edited },
+      changesets: [{ id: 'cs-a', title: 'Staging', documents: [{ id: 'live-1', doc_type: 'blog_post' }] }],
+    })
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+    const card = document.querySelector('[data-cms-id="live-1"]')
+    expect(seen.at(-1)).toMatchObject({ id: 'live-1' })
+    expect(seen.at(-1).detail.doc.body.title).toBe('Edited title')
+    expect(card.hasAttribute('data-cms-previewed')).toBe(true)
+
+    await toolbar._setLens(LENS_PROD)
+    expect(seen.at(-1).id).toBe('live-1')
+    expect(seen.at(-1).detail.doc).toBeNull()
+    expect(card.hasAttribute('data-cms-previewed')).toBe(false)
+  })
+
+  it('leaves out a live post whose edits are not in the chosen changeset', async () => {
+    const seen = previews()
+    fakeCms({
+      docs: { 'live-1': { ...live('live-1', 'Live post'), has_draft: true } },
+      changesets: [{ id: 'cs-a', title: 'Other', documents: [{ id: 'zzz', doc_type: 'link' }] }],
+    })
+    setLens(changesetLens('cs-a'))
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+    expect(seen.filter((s) => s.id === 'live-1')).toEqual([])
+  })
+
+  it('tells the site which documents the chosen changeset holds', async () => {
+    const seen = previews()
+    setLens(changesetLens('cs-a'))
+    fakeCms({
+      docs: { d1: draft('d1', 'Staged') },
+      changesets: [{ id: 'cs-a', title: 'Staging', documents: [{ id: 'd1', doc_type: 'blog_post' }, { id: 'link-9', doc_type: 'link' }] }],
+    })
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+    const { inLens } = seen.find((s) => s.id === 'd1').detail
+    expect(inLens('link-9')).toBe(true)
+    expect(inLens('link-other')).toBe(false)
+  })
+
+  it('shows live posts with their edits on a list with no card template, without drawing drafts', async () => {
+    document.querySelector('template').remove()
+    const seen = previews()
+    fakeCms({ docs: { d1: draft('d1', 'Unreleased'), 'live-1': { ...live('live-1', 'Live post'), has_draft: true } } })
+    const toolbar = newToolbar()
+    await toolbar._draftSync
+    expect(picker()).not.toBeNull()
+    expect(feedIds()).toEqual(['live-1'])
+    expect(seen.map((x) => x.id)).toEqual(['live-1'])
   })
 })
