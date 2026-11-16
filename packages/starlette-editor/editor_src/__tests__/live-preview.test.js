@@ -95,3 +95,24 @@ describe('LivePreview', () => {
     expect(calls.load).toEqual(['d1'])
   })
 })
+
+describe('LivePreview and dates', () => {
+  it('draws the lens again when a drawn draft\'s date changes, so it moves', async () => {
+    const { live, calls } = setup()
+    const card = document.querySelector('[data-cms-id="d1"]')
+    card.setAttribute('data-cms-date', '2026-08-01T00:00:00.000Z')
+    live.load = vi.fn(async (id) => ({ id, body: { title: 'x', publish_date: '2025-03-01' } }))
+    live.handle({ event: 'document.fields', document_id: 'd1', document_type: 'blog_post', fields: { publish_date: '2025-03-01' } })
+    await wait(700)
+    expect(calls.resync).toBe(1)
+  })
+
+  it('does not when the date is the same', async () => {
+    const { live, calls } = setup()
+    document.querySelector('[data-cms-id="d1"]').setAttribute('data-cms-date', '2026-08-01T00:00:00.000Z')
+    live.load = vi.fn(async (id) => ({ id, body: { title: 'x', publish_date: '2026-08-01' } }))
+    live.handle({ event: 'document.fields', document_id: 'd1', document_type: 'blog_post', fields: { title: 'x' } })
+    await wait(700)
+    expect(calls.resync).toBe(0)
+  })
+})

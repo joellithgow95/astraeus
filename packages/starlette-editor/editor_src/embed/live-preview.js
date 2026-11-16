@@ -18,10 +18,9 @@
  * Mirrors events.js: reconnect with backoff, keep-alive ping.
  */
 
-const DEBOUNCE_MS = 250
+import { docTime, q } from './drafts.js'
 
-/** A value for a double-quoted attribute selector. */
-const q = (value) => String(value ?? '').replace(/["\\]/g, '\\$&')
+const DEBOUNCE_MS = 250
 
 export class LivePreview {
   /**
@@ -114,9 +113,20 @@ export class LivePreview {
     if (own.length) {
       let doc
       try { doc = await this.load(id) } catch { return }
+      let moved = false
       for (const card of own) {
-        if (card.hasAttribute('data-cms-draft-card')) this.refill(card, doc)
+        if (card.hasAttribute('data-cms-draft-card')) {
+          this.refill(card, doc)
+          // Its date changed: it belongs elsewhere in the feed, or on another page.
+          const list = card.closest('[data-cms-list]')
+          const was = card.dataset.cmsDate ? new Date(card.dataset.cmsDate).valueOf() : null
+          if (list && docTime(list, doc) !== was) moved = true
+        }
         await this.preview(card, doc, options)
+      }
+      if (moved) {
+        clearTimeout(this._resyncTimer)
+        this._resyncTimer = setTimeout(() => this.resync(), DEBOUNCE_MS)
       }
       return
     }

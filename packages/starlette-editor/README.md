@@ -164,6 +164,16 @@ A static site is built from published documents, so a post that has never been p
 </template>
 ```
 
+**Where a draft lands.** By default a drawn card goes on top of the list. A feed split over pages (by quarter, by year) should say which dates each page holds, and give each card its date, so a draft lands among the live posts at its own date, on its own page:
+
+```html
+<div data-cms-list="blog_post" data-cms-list-from="2026-10-01" data-cms-list-until="2027-01-01">
+  <article data-cms-id="…" data-cms-date="2026-11-03T00:00:00.000Z">…</article>
+</div>
+```
+
+`data-cms-list-from` is inclusive and `-until` exclusive. Either can be left out for an open end. Leave `until` off the newest page, because a draft with no date lands there. `data-cms-list-date` names the date field (default `publish_date`). Cards stay newest first, and a draft goes above live posts of the same date. Give every page the template, because a draft dated in an older page's range is drawn there and nowhere else. When a draft's date changes, it moves.
+
 A feed can show several document types: name them space-separated (`data-cms-list="blog_post definition"`) and give each its own `<template data-cms-draft-template="…">`. A type with no template is not drawn.
 
 The template holds one card, built from the same markup and classes as a real one so the site's own styles apply. `data-cms-fill="<field>"` sets that element's text from the draft; `data-cms-fill-format` is `date` or `excerpt` (plain text of a rich-text or text field, shortened). Fields the editor can edit (`data-cms-field`) are editable on the drawn card; a template with none draws a read-only preview.
