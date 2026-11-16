@@ -43,8 +43,8 @@ if (cmsBase) {
     // Find all CMS-annotated elements on the page. A listing with a card
     // template still gets the toolbar with none: its drafts are drawn on Edit.
     const cmsElements = Array.from(document.querySelectorAll('[data-cms-id]'))
-    const { findDraftSlots } = await import('./drafts.js')
-    if (cmsElements.length === 0 && findDraftSlots().length === 0) return
+    const { findLists } = await import('./drafts.js')
+    if (cmsElements.length === 0 && findLists().length === 0) return
 
     // The panels and publish drawer are written against design tokens and
     // editor.css classes the host never loads; supply them, scoped to the

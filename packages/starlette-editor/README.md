@@ -168,6 +168,20 @@ A feed can show several document types: name them space-separated (`data-cms-lis
 
 The template holds one card, built from the same markup and classes as a real one so the site's own styles apply. `data-cms-fill="<field>"` sets that element's text from the draft; `data-cms-fill-format` is `date` or `excerpt` (plain text of a rich-text or text field, shortened). Fields the editor can edit (`data-cms-field`) are editable on the drawn card; a template with none draws a read-only preview.
 
+**The site draws the rest.** A template can only fill text, and what else a card shows (slices of data, a beat form, images, tags) is the site's to draw with its own code, so the preview matches what its build makes. After drawing a draft card, and for a live card whose unpublished edits the lens includes, the editor dispatches a bubbling `astraeus:preview` event on the card:
+
+| `detail` | |
+|---|---|
+| `doc` | The document with its draft applied (the API's `?draft=true` shape), or `null`: put the card back as built |
+| `cmsBase`, `lens` | The CMS origin and the lens |
+| `inLens(id)` | Whether an unpublished change to document `id` is in the lens, so a staged link that a draft post picks shows as staged |
+| `changed` | Ids whose content changed since the last preview, for the site's caches |
+| `waitUntil(promise)` | Hand back the drawing; the editor waits for it |
+
+A site that does not listen gets the template's text alone. A list (`data-cms-list`) with no template draws no drafts, but its live cards are still previewed, so an older page of a feed shows its posts' unpublished edits too.
+
+**It stays live.** While the lens shows anything beyond the live site, the editor listens on `/api/events` (the login cookie authorises it): a field changed anywhere (the shell, an agent over MCP, another tab) refills that card's template text, except fields being edited in place, and asks the site to draw it again; a change to another document asks the site to redraw every previewed card, naming the id; a document created, deleted or published draws the lens again (`embed/live-preview.js`).
+
 The toolbar's picker decides which drafts appear: **Live + all drafts** (the default), **Live only**, or **Live + one open changeset**. The page follows it at once: the drafts it names are drawn on page load and redrawn when you pick another, read-only until you press **Edit**, which makes them editable like the built cards. Choosing a changeset also makes it the one edits are saved into. The choice is remembered per browser. Drawn drafts are labelled "Draft · not live"; live posts with unpublished edits are labelled "Unpublished edits". Neither Discard nor the single-document Publish fallback touches a drawn draft, so a post you only looked at is never wiped or shipped.
 
 **Publish** ships the changeset you are working in. If this browser has not picked one (a phone, a fresh login), it ships the CMS's default changeset (`CMS(default_changeset=…)`, [ADR 025](../../docs/decisions/025-default-changeset.md)), and the confirm names it and how many documents it holds. With no default and nothing picked, it publishes the one post on the page.

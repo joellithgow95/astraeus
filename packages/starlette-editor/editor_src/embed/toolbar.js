@@ -14,11 +14,15 @@ import {
   LENS_PROD,
   changesetLens,
   changesetOfLens,
-  findDraftSlots,
+  findLists,
   getLens,
+  loadDraft,
+  previewCard,
+  refillDraftCard,
   setLens,
   syncDraftCards,
 } from './drafts.js'
+import { LivePreview } from './live-preview.js'
 
 export class EditToolbar {
   constructor({ cmsBase, cmsElements, reloadUrl = null }) {
@@ -32,6 +36,8 @@ export class EditToolbar {
     this.lens = getLens()           // which unpublished posts to show: 'all' | 'prod' | 'cs:<id>'
     this.changesets = []            // open changesets, for the picker
     this._draftError = null         // message shown when the drafts could not be loaded
+    this._previewing = null         // {cmsBase, context} of the drawn lens, for live redraws; null on live only
+    this._live = null               // LivePreview: redraws drawn cards when the CMS says they changed
     this.el = null                  // the toolbar DOM element
     this.changesetPanel = null      // set externally by index.js after ChangesetPanel is created
     this._chatPanel = null          // set via setChatPanel()
@@ -155,11 +161,12 @@ export class EditToolbar {
   }
 
   /**
-   * The picker, or null on a page with no list to put drafts in (a post's own
-   * page has nothing for it to do).
+   * The picker, or null on a page with no list (a post's own page has nothing
+   * for it to do). A list without a card template still gets it: its live
+   * cards show their unpublished edits.
    */
   _makeLensPicker() {
-    if (!findDraftSlots().length) return null
+    if (!findLists().length) return null
 
     const select = document.createElement('select')
     select.setAttribute('aria-label', 'Which drafts to show')
@@ -190,7 +197,7 @@ export class EditToolbar {
   }
 
   async _loadChangesets() {
-    if (!findDraftSlots().length) return
+    if (!findLists().length) return
     try {
       const res = await fetch(`${this.cmsBase}/api/changesets?status=open&include_documents=true`, {
         credentials: 'include',
@@ -235,9 +242,10 @@ export class EditToolbar {
   }
 
   async _syncDraftCardsNow({ activate }) {
-    if (!findDraftSlots().length) return
+    if (!findLists().length) return
     try {
-      const { added } = await syncDraftCards({ cmsBase: this.cmsBase, lens: this.lens })
+      const { added, context } = await syncDraftCards({ cmsBase: this.cmsBase, lens: this.lens })
+      this._followLens(context)
       this._draftError = null
       this.draftCards = [...document.querySelectorAll('[data-cms-draft-card]')]
       if (activate) await this._activateCards(added)
@@ -245,6 +253,24 @@ export class EditToolbar {
       this._draftError = '⚠ Could not load drafts'
     }
     this._render()
+  }
+
+  /** Keep the drawn lens live while it shows anything beyond the live site. */
+  _followLens(context) {
+    this._previewing = context && context.lens !== LENS_PROD ? { cmsBase: this.cmsBase, context } : null
+    if (this._previewing && !this._live) {
+      this._live = new LivePreview({
+        cmsBase: this.cmsBase,
+        current: () => this._previewing,
+        preview: previewCard,
+        refill: refillDraftCard,
+        load: (id) => loadDraft(this.cmsBase, id),
+        resync: () => this._syncDraftCards({ activate: this.state === 'editing' || this.state === 'saving' }),
+      }).start()
+    } else if (!this._previewing && this._live) {
+      this._live.stop()
+      this._live = null
+    }
   }
 
   async _activateCards(elements) {

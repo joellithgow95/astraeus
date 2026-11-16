@@ -21,8 +21,22 @@
  *   data-cms-fill-format="date" | "excerpt"   how to show it (optional)
  *
  * Which drafts appear is the "lens": prod (none), all drafts, or one changeset.
- * The lens only decides which not-yet-live posts are added. Draft edits to a
- * post that is already live always show in edit mode, as before.
+ * The lens decides which not-yet-live posts are added, and which live posts are
+ * shown with their unpublished edits.
+ *
+ * A template can only fill text. What else a card shows (slices of data, a beat
+ * form, images, tags) is the site's to draw, with its own code, so the preview
+ * matches what the build will make. After drawing a draft card, and for a live
+ * card with unpublished edits in the lens, the editor dispatches
+ * `astraeus:preview` on the card (bubbling), with `detail`:
+ *   doc        the document with its draft applied, or null: show the card as built
+ *   cmsBase    the CMS origin
+ *   lens       the lens
+ *   inLens(id) whether an unpublished change to document `id` is in the lens
+ *              (so a staged link a draft post picks shows as staged)
+ *   changed    ids whose content changed since the last preview, for the site's caches
+ *   waitUntil(promise)  the site hands back its rendering, which the editor awaits
+ * A site that does not listen gets the template's text alone.
  */
 
 const LENS_KEY = 'astraeus:draftLens'
@@ -66,14 +80,23 @@ export function setLens(lens) {
  * drafts from. A list naming two types with a template each is two slots.
  */
 export function findDraftSlots(root = document) {
-  const slots = []
+  return findLists(root).filter((slot) => slot.template)
+}
+
+/**
+ * Each (list, document type) on this page, with its card template or null. A
+ * list with no template (an older page of a feed, say) gets no drawn drafts,
+ * but its live cards still show their unpublished edits in the lens.
+ */
+export function findLists(root = document) {
+  const lists = []
   for (const list of root.querySelectorAll('[data-cms-list]')) {
     for (const docType of list.dataset.cmsList.split(/\s+/).filter(Boolean)) {
       const template = root.querySelector(`template[data-cms-draft-template="${docType}"]`)
-      if (template) slots.push({ list, template, docType })
+      lists.push({ list, template, docType })
     }
   }
-  return slots
+  return lists
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -90,18 +113,30 @@ async function getJson(url) {
 const withDraft = (cmsBase, id) => getJson(`${cmsBase}/api/documents/${id}?draft=true`)
 
 /**
+ * What a lens covers: `inLens(id)` says whether an unpublished change to a
+ * document is part of it, and `changeset` is the changeset it names, if any.
+ */
+export async function loadLensContext(cmsBase, lens) {
+  if (lens === LENS_PROD) return { lens, changeset: null, inLens: () => false }
+  const changesetId = changesetOfLens(lens)
+  if (!changesetId) return { lens, changeset: null, inLens: () => true }
+  const changeset = await getJson(`${cmsBase}/api/changesets/${changesetId}`)
+  const ids = new Set((changeset.documents ?? []).map((d) => d.id))
+  return { lens, changeset, inLens: (id) => ids.has(id) }
+}
+
+/**
  * Posts of `docType` the lens asks for that are not live yet.
  *
  * The list endpoint returns the published body, so a draft that has been edited
  * is fetched again for its draft body.
  */
-async function loadUnpublished(cmsBase, docType, lens) {
+async function loadUnpublished(cmsBase, docType, context) {
+  const { lens, changeset } = context
   if (lens === LENS_PROD) return []
 
-  const changesetId = changesetOfLens(lens)
   let docs
-  if (changesetId) {
-    const changeset = await getJson(`${cmsBase}/api/changesets/${changesetId}`)
+  if (changeset) {
     const ids = (changeset.documents ?? []).filter((d) => d.doc_type === docType).map((d) => d.id)
     docs = await Promise.all(ids.map((id) => withDraft(cmsBase, id)))
   } else {
@@ -218,16 +253,27 @@ export function renderDraftCard(template, doc) {
  */
 export async function syncDraftCards({ cmsBase, lens, root = document }) {
   const added = []
+  const context = await loadLensContext(cmsBase, lens)
+  const previews = []
 
-  for (const { list, template, docType } of findDraftSlots(root)) {
+  for (const { list, template, docType } of findLists(root)) {
     const [docs, editedIds] = await Promise.all([
-      loadUnpublished(cmsBase, docType, lens),
+      template ? loadUnpublished(cmsBase, docType, context) : [],
       loadEditedIds(cmsBase, docType),
     ])
 
-    for (const card of list.querySelectorAll('[data-cms-id]:not([data-cms-draft-card])')) {
-      if (editedIds.has(card.dataset.cmsId)) addPill(card, 'edited', 'Unpublished edits')
+    // Live posts: their unpublished edits show when the lens includes them.
+    for (const card of list.querySelectorAll(`[data-cms-id][data-cms-type="${docType}"]:not([data-cms-draft-card])`)) {
+      const id = card.dataset.cmsId
+      if (editedIds.has(id)) addPill(card, 'edited', 'Unpublished edits')
+      if (editedIds.has(id) && context.inLens(id)) {
+        previews.push(withDraft(cmsBase, id).then((doc) => previewCard(card, doc, { cmsBase, context })))
+      } else if (card.hasAttribute('data-cms-previewed')) {
+        previews.push(previewCard(card, null, { cmsBase, context }))
+      }
     }
+
+    if (!template) continue
 
     // Only this type's cards: a feed shared by several types syncs each in turn.
     const wanted = new Map(docs.map((d) => [d.id, d]))
@@ -245,7 +291,53 @@ export async function syncDraftCards({ cmsBase, lens, root = document }) {
       list.prepend(card)
       added.push(card)
     }
+    // Every draft card, new or already drawn: the site draws what the template can't.
+    for (const card of list.querySelectorAll('[data-cms-draft-card]')) {
+      const doc = wanted.get(card.dataset.cmsId)
+      if (doc && card.dataset.cmsType === docType) previews.push(previewCard(card, doc, { cmsBase, context }))
+    }
   }
 
-  return { added }
+  await Promise.allSettled(previews)
+  return { added, context }
 }
+
+/**
+ * Ask the site to draw `doc` into `card` (see the header: `astraeus:preview`).
+ * `doc` null puts a live card back as built. Resolves once the site has drawn it.
+ *
+ * @param {Element} card
+ * @param {object|null} doc  the document with its draft applied
+ * @param {{cmsBase: string, context: {lens: string, inLens: (id: string) => boolean}, changed?: string[]}} options
+ */
+export async function previewCard(card, doc, { cmsBase, context, changed = [] }) {
+  if (doc) card.setAttribute('data-cms-previewed', '')
+  else card.removeAttribute('data-cms-previewed')
+  const pending = []
+  card.dispatchEvent(new CustomEvent('astraeus:preview', {
+    bubbles: true,
+    detail: {
+      doc,
+      cmsBase,
+      lens: context.lens,
+      inLens: context.inLens,
+      changed,
+      waitUntil: (promise) => pending.push(promise),
+    },
+  }))
+  await Promise.allSettled(pending)
+}
+
+/**
+ * Refill a drawn draft card's template text from `doc`, leaving alone any field
+ * being edited in place (its own editor shows the live value).
+ */
+export function refillDraftCard(card, doc) {
+  const body = doc.body ?? {}
+  for (const el of card.querySelectorAll('[data-cms-fill]')) {
+    if (el.isContentEditable || el.querySelector('[contenteditable="true"], .ProseMirror')) continue
+    fill(el, body[el.dataset.cmsFill], el.dataset.cmsFillFormat)
+  }
+}
+
+export { withDraft as loadDraft }
