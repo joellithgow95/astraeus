@@ -2824,3 +2824,22 @@ body.is-resizing * {
 .drawing-pad__width-out {
   font-family: var(--font-mono);
 }
+
+.drawing-pad__group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.drawing-pad__group[hidden] { display: none; }
+
+.drawing-pad__sheet--reshape { cursor: grab; }
+.drawing-pad__sheet--grabbing { cursor: grabbing; }
+
+/* Reshape's reach: where a pull or a pinch takes hold. */
+.drawing-pad__ring {
+  fill: rgba(122, 46, 74, 0.08);
+  stroke: #7a2e4a;
+  stroke-width: 0.5;
+  stroke-dasharray: 1.5 1.2;
+  pointer-events: none;
+}

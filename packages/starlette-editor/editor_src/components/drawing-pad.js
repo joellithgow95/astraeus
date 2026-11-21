@@ -7,6 +7,12 @@
  * A stroke either closes (and takes the fill) or stays open as a line, for
  * notes and nodules on a shape.
  *
+ * Two tools: Draw adds strokes; Reshape pulls the drawing like clay: press
+ * on it and drag, and every point within the reach follows, less the further
+ * it is (mirrored across the axis while symmetry is on). On a touch screen,
+ * pinching on the sheet in Reshape grows or shrinks the reach. A second
+ * finger never draws: it cancels the stroke or pull in progress.
+ *
  * One style colours the whole drawing: a fill, an outline colour and an
  * outline width. Changing any of them restyles every path, so a shape is
  * drawn once and recoloured after. The stored value is the shared drawing
@@ -114,6 +120,79 @@ export function toValue(paths, sym) {
   return { viewbox: VIEWBOX, paths: paths.map((p) => ({ ...p })), ...(sym !== 'off' ? { symmetry: 'vertical' } : {}) }
 }
 
+// ---- reshape: pull the drawing like clay ----
+
+const ABS_POINT_CMDS = /^[MLQCSTZ]$/
+
+/**
+ * Read path data back into commands with their points. Only absolute
+ * M/L/Q/C/S/T/Z (what the pad writes); anything else returns null, and the
+ * path is left as it is.
+ *
+ * @param {string} d
+ * @returns {{c: string, pts: {x: number, y: number}[]}[] | null}
+ */
+export function parsePath(d) {
+  const cmds = []
+  for (const m of d.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
+    if (!ABS_POINT_CMDS.test(m[1])) return null
+    const nums = (m[2].match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number)
+    if (nums.length % 2) return null
+    const pts = []
+    for (let i = 0; i < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
+    cmds.push({ c: m[1], pts })
+  }
+  return cmds
+}
+
+/** Write commands from parsePath back as path data. */
+export function buildPath(cmds) {
+  return cmds.map((k) => (k.c === 'Z' ? 'Z' : `${k.c} ${k.pts.map((q) => `${r1(q.x)} ${r1(q.y)}`).join(' ')}`)).join(' ')
+}
+
+const smoothstep = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t))
+const falloff = (dist, reach) => smoothstep(1 - dist / reach)
+
+/**
+ * How far point p moves when the grab at g moves by (dx, dy). With symmetry
+ * on the pull is mirrored: the far side moves the mirrored way, and points on
+ * the axis only move up or down, so a symmetric shape stays symmetric.
+ */
+export function displace(p, g, dx, dy, reach, sym) {
+  if (sym === 'off') {
+    const w = falloff(Math.hypot(p.x - g.x, p.y - g.y), reach)
+    return { x: dx * w, y: dy * w }
+  }
+  const side = g.x >= 50 ? 1 : -1
+  const same = (p.x - 50) * side >= 0
+  const qx = same ? p.x : 100 - p.x
+  const w = falloff(Math.hypot(qx - g.x, p.y - g.y), reach)
+  const offAxis = smoothstep(Math.abs(p.x - 50) / 3)
+  return { x: dx * w * (same ? 1 : -1) * offAxis, y: dy * w }
+}
+
+/**
+ * Pull every path: the grab at g moved by (dx, dy). Style is kept.
+ *
+ * @param {{d: string}[]} paths
+ */
+export function warp(paths, g, dx, dy, reach, sym) {
+  return paths.map((p) => {
+    const cmds = parsePath(p.d)
+    if (!cmds) return { ...p }
+    for (const k of cmds) {
+      for (const q of k.pts) {
+        const o = displace(q, g, dx, dy, reach, sym)
+        q.x += o.x
+        q.y += o.y
+      }
+    }
+    return { ...p, d: buildPath(cmds) }
+  })
+}
+
+export const REACH = { min: 6, max: 60, initial: 22 }
+
 function svgEl(tag, attrs = {}) {
   const n = document.createElementNS(SVG_NS, tag)
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v))
@@ -131,6 +210,8 @@ export function createDrawingPad(value, ctx) {
   let style = styleOf(paths)
   let sym = paths.length && !value?.symmetry ? 'off' : 'fold'
   let closeStrokes = true
+  let tool = 'draw'
+  let reach = REACH.initial
   const history = []
   let future = []
 
@@ -140,7 +221,9 @@ export function createDrawingPad(value, ctx) {
   const art = svgEl('g')
   const live = svgEl('path', { fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
   const liveMirror = svgEl('path', { fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
-  svg.append(axis, art, live, liveMirror)
+  const ring = svgEl('circle', { class: 'drawing-pad__ring', r: reach })
+  ring.style.display = 'none'
+  svg.append(axis, art, live, liveMirror, ring)
   const hint = el('div', { class: 'drawing-pad__hint' })
   const sheet = el('div', { class: 'drawing-pad__sheet' }, svg, hint)
 
@@ -160,6 +243,10 @@ export function createDrawingPad(value, ctx) {
     })
     return { wrap, update: () => buttons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.key === get()))) }
   }
+  const toolSeg = seg('Tool', [
+    ['draw', 'Draw', 'Draw new strokes'],
+    ['reshape', 'Reshape', 'Press on the shape and drag: nearby parts follow'],
+  ], () => tool, (k) => { tool = k })
   const symSeg = seg('Symmetry', [
     ['fold', 'Fold', 'Draw one side; it joins its mirror as one shape'],
     ['mirror', 'Mirror', 'Every stroke gets a mirrored twin'],
@@ -213,9 +300,19 @@ export function createDrawingPad(value, ctx) {
     emit()
   })
 
+  const reachOut = el('output', { class: 'drawing-pad__width-out' })
+  const reachIn = el('input', {
+    type: 'range', min: String(REACH.min), max: String(REACH.max), step: '1',
+    class: 'drawing-pad__width', 'aria-label': 'Reach',
+  })
+  reachIn.addEventListener('input', () => { reach = Number(reachIn.value); sync() })
+
   const label = (text, extra) => el('div', { class: 'drawing-pad__label' }, text, ...(extra ? [extra] : []))
+  const reachGroup = el('div', { class: 'drawing-pad__group' }, label('Reach', reachOut), reachIn)
   const panel = el('div', { class: 'drawing-pad__controls' },
     el('div', { class: 'drawing-pad__row' }, undoBtn, redoBtn, clearBtn),
+    label('Tool'), toolSeg.wrap,
+    reachGroup,
     label('Symmetry'), symSeg.wrap,
     label('Each stroke'), closeSeg.wrap,
     label('Fill'), fillRow.row,
@@ -241,12 +338,18 @@ export function createDrawingPad(value, ctx) {
     })))
     axis.style.display = sym === 'off' ? 'none' : ''
     hint.hidden = paths.length > 0
-    hint.textContent = !closeStrokes ? 'Strokes stay open, as lines.'
+    hint.textContent = tool === 'reshape' ? 'Press on the shape and drag. Nearby parts follow.'
+      : !closeStrokes ? 'Strokes stay open, as lines.'
       : sym === 'fold' ? 'Draw one side, top to bottom. It folds into one shape.'
         : 'Draw a loop. It closes and fills when you lift.'
     undoBtn.disabled = history.length === 0
     redoBtn.disabled = future.length === 0
-    symSeg.update(); closeSeg.update(); fillRow.update(); outlineRow.update()
+    toolSeg.update(); symSeg.update(); closeSeg.update(); fillRow.update(); outlineRow.update()
+    sheet.classList.toggle('drawing-pad__sheet--reshape', tool === 'reshape')
+    reachGroup.hidden = tool !== 'reshape'
+    reachIn.value = String(reach)
+    reachOut.textContent = String(reach)
+    ring.setAttribute('r', String(reach))
     widthIn.value = String(style.width)
     widthOut.textContent = Number(style.width).toFixed(1)
   }
@@ -266,16 +369,64 @@ export function createDrawingPad(value, ctx) {
     clearArmed = setTimeout(() => { clearArmed = null; clearBtn.textContent = 'Clear' }, 2500)
   })
 
-  // ---- drawing ----
-  let pts = null
+  // ---- pointers: draw, pull, pinch ----
+  // `pointers` holds every finger (or pen, or mouse) down on the sheet. One
+  // pointer draws a stroke or pulls the shape; a second cancels that, and in
+  // Reshape the two pinch the reach.
+  const pointers = new Map()
+  let pts = null    // the stroke being drawn
+  let grab = null   // { g, from } while pulling
+  let pinch = null  // { dist, reach } while pinching
   const toPoint = (e) => {
     const r = svg.getBoundingClientRect()
     return { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }
   }
+  const showRing = (at) => {
+    ring.setAttribute('cx', String(at.x))
+    ring.setAttribute('cy', String(at.y))
+    ring.style.display = ''
+  }
+  const pinchState = () => {
+    const [a, b] = [...pointers.values()]
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }
+  }
+  const cancelStroke = () => {
+    pts = null
+    live.setAttribute('d', '')
+    liveMirror.setAttribute('d', '')
+  }
+  const cancelGrab = () => {
+    if (!grab) return
+    paths = grab.from
+    grab = null
+    sheet.classList.remove('drawing-pad__sheet--grabbing')
+    sync()
+  }
+
   sheet.addEventListener('pointerdown', (e) => {
     if (e.button > 0) return
     e.preventDefault()
     sheet.setPointerCapture?.(e.pointerId)
+    pointers.set(e.pointerId, toPoint(e))
+    if (pointers.size === 2) {
+      // A second finger: never a stroke or a pull. In Reshape it pinches the reach.
+      cancelStroke()
+      cancelGrab()
+      if (tool === 'reshape') {
+        const { dist, mid } = pinchState()
+        pinch = { dist: Math.max(dist, 1), reach }
+        showRing(mid)
+      }
+      return
+    }
+    if (pointers.size > 2) return
+    if (tool === 'reshape') {
+      if (!paths.length) return
+      grab = { g: toPoint(e), from: paths.map((p) => ({ ...p })) }
+      showRing(grab.g)
+      sheet.classList.add('drawing-pad__sheet--grabbing')
+      return
+    }
     pts = [toPoint(e)]
     for (const l of [live, liveMirror]) {
       l.setAttribute('stroke', style.stroke === 'none' ? '#8a929b' : style.stroke)
@@ -283,18 +434,44 @@ export function createDrawingPad(value, ctx) {
     }
   })
   sheet.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return
+    pointers.set(e.pointerId, toPoint(e))
+    if (pinch && pointers.size === 2) {
+      const { dist, mid } = pinchState()
+      reach = Math.round(Math.min(REACH.max, Math.max(REACH.min, pinch.reach * (dist / pinch.dist))))
+      showRing(mid)
+      sync()
+      return
+    }
+    if (grab) {
+      const c = toPoint(e)
+      paths = warp(grab.from, grab.g, c.x - grab.g.x, c.y - grab.g.y, reach, sym)
+      sync()
+      return
+    }
     if (!pts) return
     const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
     for (const ev of (events.length ? events : [e])) pts.push(toPoint(ev))
     live.setAttribute('d', smoothPath(pts, false))
     liveMirror.setAttribute('d', sym === 'off' ? '' : smoothPath(mirrorPoints(pts), false))
   })
-  const finish = () => {
+  const finish = (e) => {
+    if (!pointers.delete(e.pointerId)) return
+    if (pinch) {
+      if (pointers.size === 0) { pinch = null; ring.style.display = 'none' }
+      return
+    }
+    if (grab) {
+      const { from } = grab
+      grab = null
+      ring.style.display = 'none'
+      sheet.classList.remove('drawing-pad__sheet--grabbing')
+      if (JSON.stringify(paths) !== JSON.stringify(from)) { history.push(JSON.stringify(from)); future = []; emit() }
+      return
+    }
     if (!pts) return
     const drawn = pts
-    pts = null
-    live.setAttribute('d', '')
-    liveMirror.setAttribute('d', '')
+    cancelStroke()
     if (drawn.length < 3) return
     const added = strokeToPaths(drawn, sym, closeStrokes)
     if (added.length) commit(applyStyle([...paths, ...added.map((d) => ({ d }))], style))
