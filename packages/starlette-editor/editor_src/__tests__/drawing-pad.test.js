@@ -1,9 +1,25 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   smoothPath, strokeToPaths, applyStyle, styleOf, toValue, isClosed, createDrawingPad,
   parsePath, buildPath, displace, warp, REACH,
 } from '../components/drawing-pad.js'
+
+// The pad draws on its own screen, appended to the body when opened.
+function openPad(value, onSave = () => {}) {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  createDrawingPad(value, { container, onSave })
+  container.querySelector('.drawing-pad__open').click()
+  const screen = document.querySelector('.drawing-pad-screen')
+  screen.querySelector('[data-key="draw"]').click() // the tool outlives a pad
+  return { container, screen }
+}
+
+afterEach(() => {
+  document.querySelector('.drawing-pad__done')?.click()
+  document.body.replaceChildren()
+})
 
 const line = (n = 10) => Array.from({ length: n }, (_, i) => ({ x: 30 + i * 2, y: 10 + i * 6 }))
 
@@ -74,29 +90,63 @@ describe('createDrawingPad', () => {
     symmetry: 'vertical',
   }
 
-  it('renders the stored paths', () => {
-    const container = document.createElement('div')
-    createDrawingPad(stored, { container, onSave: () => {} })
-    expect(container.querySelectorAll('.drawing-pad__svg g path')).toHaveLength(2)
+  it('renders the stored paths in the preview and on the screen', () => {
+    const { container, screen } = openPad(stored)
+    expect(container.querySelectorAll('.drawing-pad__thumb-svg path')).toHaveLength(2)
+    expect(screen.querySelectorAll('.drawing-pad__svg g path')).toHaveLength(2)
+    expect(container.querySelector('.drawing-pad__open').textContent).toBe('Edit shape')
+  })
+
+  it('opens full screen with the page locked, and Done closes it', () => {
+    const { container, screen } = openPad(null)
+    expect(container.querySelector('.drawing-pad__open').textContent).toBe('Draw shape')
+    expect(screen.isConnected).toBe(true)
+    expect(document.documentElement.classList.contains('drawing-pad-open')).toBe(true)
+    screen.querySelector('.drawing-pad__done').click()
+    expect(screen.isConnected).toBe(false)
+    expect(document.documentElement.classList.contains('drawing-pad-open')).toBe(false)
+  })
+
+  it('Escape closes the screen', () => {
+    const { screen } = openPad(stored)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(screen.isConnected).toBe(false)
+  })
+
+  it('opening puts away the keyboard of a field being typed in', () => {
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    openPad(stored)
+    expect(document.activeElement).not.toBe(input)
+  })
+
+  it('Style opens and closes the tray', () => {
+    const { screen } = openPad(stored)
+    const btn = screen.querySelector('.drawing-pad__style-btn')
+    btn.click()
+    expect(screen.classList.contains('drawing-pad-screen--tray')).toBe(true)
+    btn.click()
+    expect(screen.classList.contains('drawing-pad-screen--tray')).toBe(false)
   })
 
   it('recolours the whole drawing from a swatch, keeping open lines unfilled', () => {
-    const container = document.createElement('div')
     const onSave = vi.fn()
-    createDrawingPad(stored, { container, onSave })
-    container.querySelector('.drawing-pad__swatches [data-color="#3f6e5a"]').click()
+    const { container, screen } = openPad(stored, onSave)
+    screen.querySelector('.drawing-pad__swatches [data-color="#3f6e5a"]').click()
     const saved = onSave.mock.calls.at(-1)[0]
     expect(saved.paths[0].fill).toBe('#3f6e5a')
     expect(saved.paths[1].fill).toBe('none')
     expect(saved.paths.every((p) => p.stroke === '#1d2126')).toBe(true)
+    expect(container.querySelector('.drawing-pad__thumb-svg path').getAttribute('fill')).toBe('#3f6e5a')
   })
 
   it('undo restores the colours; clear saves null after a second tap', () => {
-    const container = document.createElement('div')
     const onSave = vi.fn()
-    createDrawingPad(stored, { container, onSave })
-    container.querySelector('[data-color="#3f6e5a"]').click()
-    const [undo, , clear] = container.querySelectorAll('.drawing-pad__row button')
+    const { screen } = openPad(stored, onSave)
+    screen.querySelector('[data-color="#3f6e5a"]').click()
+    const [undo] = screen.querySelectorAll('.drawing-pad__bar .drawing-pad__row button')
+    const clear = screen.querySelector('.drawing-pad__clear')
     undo.click()
     expect(onSave.mock.calls.at(-1)[0].paths[0].fill).toBe('#7a2e4a')
     clear.click()
@@ -106,11 +156,10 @@ describe('createDrawingPad', () => {
   })
 
   it('starts in Fold for a new drawing and Off for one stored without symmetry', () => {
-    const a = document.createElement('div')
-    createDrawingPad(null, { container: a, onSave: () => {} })
+    const a = openPad(null).screen
     expect(a.querySelector('[data-key="fold"]').getAttribute('aria-pressed')).toBe('true')
-    const b = document.createElement('div')
-    createDrawingPad({ ...stored, symmetry: undefined }, { container: b, onSave: () => {} })
+    a.querySelector('.drawing-pad__done').click()
+    const b = openPad({ ...stored, symmetry: undefined }).screen
     expect(b.querySelector('[data-key="off"]').getAttribute('aria-pressed')).toBe('true')
   })
 
@@ -157,23 +206,22 @@ describe('createDrawingPad gestures', () => {
   }
   // jsdom has no layout or PointerEvent: a 100px sheet, so pixels are viewBox units.
   function mount(value = stored) {
-    const container = document.createElement('div')
     const onSave = vi.fn()
-    createDrawingPad(value, { container, onSave })
-    container.querySelector('.drawing-pad__svg').getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 })
-    const sheet = container.querySelector('.drawing-pad__sheet')
-    const fire = (type, id, x, y) => {
+    const { container, screen } = openPad(value, onSave)
+    screen.querySelector('.drawing-pad__svg').getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 })
+    const sheet = screen.querySelector('.drawing-pad__sheet')
+    const fire = (type, id, x, y, extra = {}) => {
       const ev = new Event(type, { bubbles: true, cancelable: true })
-      Object.assign(ev, { pointerId: id, clientX: x, clientY: y, button: 0 })
+      Object.assign(ev, { pointerId: id, clientX: x, clientY: y, button: 0, ...extra })
       sheet.dispatchEvent(ev)
     }
-    return { container, onSave, sheet, fire }
+    return { container: screen, form: container, onSave, sheet, fire }
   }
 
   it('Reshape pulls the shape and lands as one undo step', () => {
     const { container, onSave, fire } = mount()
     container.querySelector('[data-key="reshape"]').click()
-    expect(container.querySelector('.drawing-pad__group').hidden).toBe(false)
+    expect(container.querySelector('.drawing-pad__reach').hidden).toBe(false)
     fire('pointerdown', 1, 70, 50)
     fire('pointermove', 1, 80, 50)
     fire('pointerup', 1, 80, 50)
@@ -181,7 +229,7 @@ describe('createDrawingPad gestures', () => {
     expect(saved.paths[0].d).toContain('80 50')
     expect(saved.paths[0].d).toContain('20 50') // the mirrored side follows
     expect(saved.paths[0].fill).toBe('#7a2e4a')
-    container.querySelector('.drawing-pad__row button').click() // undo
+    container.querySelector('.drawing-pad__bar .drawing-pad__row button').click() // undo
     expect(onSave.mock.calls.at(-1)[0].paths[0].d).toBe(stored.paths[0].d)
   })
 
@@ -218,5 +266,72 @@ describe('createDrawingPad gestures', () => {
     fire('pointermove', 1, 65, 50)
     fire('pointerup', 1, 50, 90)
     expect(onSave.mock.calls.at(-1)[0].paths).toHaveLength(1)
+  })
+
+  it('shows the reach ring as soon as Reshape is on, and it follows a pull', () => {
+    const { container, fire } = mount()
+    const ring = container.querySelector('.drawing-pad__ring:not(.drawing-pad__ring--mirror)')
+    expect(ring.style.display).toBe('none')
+    container.querySelector('[data-key="reshape"]').click()
+    expect(ring.style.display).toBe('')
+    fire('pointerdown', 1, 70, 50)
+    fire('pointermove', 1, 80, 55)
+    expect(ring.getAttribute('cx')).toBe('80')
+    expect(ring.getAttribute('cy')).toBe('55')
+    fire('pointerup', 1, 80, 55)
+    expect(ring.style.display).toBe('') // stays where the pull ended
+  })
+
+  it('the reach slider resizes the visible ring', () => {
+    const { container } = mount()
+    container.querySelector('[data-key="reshape"]').click()
+    const reachIn = container.querySelector('input[aria-label="Reach"]')
+    reachIn.value = '40'
+    reachIn.dispatchEvent(new Event('input'))
+    expect(container.querySelector('.drawing-pad__ring').getAttribute('r')).toBe('40')
+  })
+
+  it('a cancelled pull is undone, not saved', () => {
+    const { container, onSave, fire } = mount()
+    container.querySelector('[data-key="reshape"]').click()
+    const calls = onSave.mock.calls.length
+    fire('pointerdown', 1, 70, 50)
+    fire('pointermove', 1, 85, 50)
+    fire('pointercancel', 1, 85, 50)
+    expect(onSave.mock.calls.length).toBe(calls)
+    expect(container.querySelector('.drawing-pad__svg g path').getAttribute('d')).toBe(stored.paths[0].d)
+  })
+
+  it('a cancelled stroke is dropped', () => {
+    const { onSave, fire } = mount(null)
+    fire('pointerdown', 1, 50, 10)
+    fire('pointermove', 1, 60, 30)
+    fire('pointermove', 1, 65, 50)
+    fire('pointercancel', 1, 65, 50)
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('after a pinch, the next single finger pulls again', () => {
+    const { container, onSave, fire } = mount()
+    container.querySelector('[data-key="reshape"]').click()
+    fire('pointerdown', 1, 40, 50)
+    fire('pointerdown', 2, 60, 50)
+    fire('pointerup', 1, 40, 50)
+    fire('pointerup', 2, 60, 50)
+    fire('pointerdown', 3, 70, 50)
+    fire('pointermove', 3, 80, 50)
+    fire('pointerup', 3, 80, 50)
+    expect(onSave.mock.calls.at(-1)[0].paths[0].d).toContain('80 50')
+  })
+
+  it('Reshape stays on when the form rebuilds the pad', () => {
+    const { container } = mount()
+    container.querySelector('[data-key="reshape"]').click()
+    container.querySelector('.drawing-pad__done').click()
+    const c2 = document.createElement('div')
+    document.body.appendChild(c2)
+    createDrawingPad(stored, { container: c2, onSave: () => {} })
+    c2.querySelector('.drawing-pad__open').click()
+    expect(document.querySelector('.drawing-pad-screen [data-key="reshape"]').getAttribute('aria-pressed')).toBe('true')
   })
 })

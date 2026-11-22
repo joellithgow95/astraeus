@@ -2685,27 +2685,92 @@ body.is-resizing * {
     border: none;
   }
   .media-picker .media-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 /* ── Drawing pad (DrawingField, components/drawing-pad.js) ───────────────── */
 
+/* In the form: a preview of the shape and a button that opens the screen. */
 .drawing-pad {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: var(--space-3);
 }
 
-@media (min-width: 720px) {
-  .drawing-pad {
-    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
-    align-items: start;
-  }
+/* Paper stays light in dark mode: the shape's colours are its own. */
+.drawing-pad__thumb {
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 120px;
+  flex: none;
+  padding: 0;
+  background: #fbfaf7;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
 }
 
-/* Paper stays light in dark mode: the shape's colours are its own. */
+.drawing-pad__thumb-svg { width: 100%; height: 100%; }
+
+.drawing-pad__thumb-empty {
+  font-size: var(--font-size-xs);
+  color: #6b7078;
+}
+
+.drawing-pad__open { border: 1px solid var(--border-default); }
+
+/* The drawing screen: fixed over everything, nothing under it scrolls. */
+html.drawing-pad-open,
+html.drawing-pad-open body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.drawing-pad-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10001; /* over the floating dock (10000) */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--bg-base, var(--bg-surface));
+  color: var(--text-primary);
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.drawing-pad__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.drawing-pad__title {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* The sheet is as large a square as the stage holds. */
+.drawing-pad__stage {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: var(--space-3);
+  container-type: size;
+}
+
 .drawing-pad__sheet {
   position: relative;
+  width: min(100cqw, 100cqh);
   aspect-ratio: 1;
-  width: 100%;
-  max-width: 360px;
   background: #fbfaf7;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -2736,10 +2801,72 @@ body.is-resizing * {
   pointer-events: none;
 }
 
-.drawing-pad__controls {
+.drawing-pad__hint[hidden] { display: none; }
+
+.drawing-pad__side {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.drawing-pad__tools {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.drawing-pad__tool-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.drawing-pad__tool-row .drawing-pad__seg { flex: 1; }
+
+.drawing-pad__style-btn[aria-expanded="true"] {
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--border-default);
+}
+
+/* The style tray: closed on a phone until Style is pressed; it may scroll on
+   its own if the phone is short, never the page. */
+.drawing-pad__tray {
+  display: none;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  max-height: 36dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.drawing-pad-screen--tray .drawing-pad__tray { display: grid; }
+
+.drawing-pad__tray > .drawing-pad__label { margin-top: 0; }
+.drawing-pad__tray .drawing-pad__seg button { min-height: 36px; }
+.drawing-pad__tray .drawing-pad__sw,
+.drawing-pad__tray .drawing-pad__custom { width: 28px; height: 28px; }
+.drawing-pad__tray .drawing-pad__swatches { gap: 6px; }
+.drawing-pad__tray .drawing-pad__row { grid-column: 1 / -1; }
+
+/* Wide screens: the sheet on the left, tools and the open tray on the right. */
+@media (min-width: 760px) and (min-aspect-ratio: 1/1) {
+  .drawing-pad-screen {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .drawing-pad__bar { grid-column: 1 / -1; }
+  .drawing-pad__side {
+    align-content: start;
+    overflow-y: auto;
+    border-top: none;
+    border-left: 1px solid var(--border-subtle);
+    padding-top: var(--space-3);
+    touch-action: pan-y;
+  }
+  .drawing-pad__style-btn { display: none; }
+  .drawing-pad__tray { display: grid; max-height: none; overflow: visible; }
 }
 
 .drawing-pad__row {
@@ -2751,11 +2878,12 @@ body.is-resizing * {
 .drawing-pad__label {
   display: flex;
   justify-content: space-between;
+  gap: var(--space-2);
   margin-top: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
 
 .drawing-pad__seg {
@@ -2774,7 +2902,6 @@ body.is-resizing * {
   border-radius: calc(var(--radius-sm) - 2px);
   color: var(--text-secondary);
   font: inherit;
-  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 
@@ -2835,11 +2962,17 @@ body.is-resizing * {
 .drawing-pad__sheet--reshape { cursor: grab; }
 .drawing-pad__sheet--grabbing { cursor: grabbing; }
 
-/* Reshape's reach: where a pull or a pinch takes hold. */
+/* Reshape's reach: where a pull or a pinch takes hold. Shown whenever
+   Reshape is on; the faint twin is the mirrored side that moves with it. */
 .drawing-pad__ring {
   fill: rgba(122, 46, 74, 0.08);
   stroke: #7a2e4a;
   stroke-width: 0.5;
   stroke-dasharray: 1.5 1.2;
   pointer-events: none;
+}
+
+.drawing-pad__ring--mirror {
+  fill: rgba(122, 46, 74, 0.04);
+  stroke-opacity: 0.4;
 }
