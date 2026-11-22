@@ -9,9 +9,13 @@
  *
  * Two tools: Draw adds strokes; Reshape pulls the drawing like clay: press
  * on it and drag, and every point within the reach follows, less the further
- * it is (mirrored across the axis while symmetry is on). On a touch screen,
- * pinching on the sheet in Reshape grows or shrinks the reach. A second
- * finger never draws: it cancels the stroke or pull in progress.
+ * it is (mirrored across the axis while symmetry is on). The reach shows as a
+ * ring whenever Reshape is on. On a touch screen, pinching on the sheet in
+ * Reshape grows or shrinks the reach. A second finger never draws: it cancels
+ * the stroke or pull in progress.
+ *
+ * The form shows a preview; drawing happens on a full-screen sheet with no
+ * page scroll under it (see createDrawingPad).
  *
  * One style colours the whole drawing: a fill, an outline colour and an
  * outline width. Changing any of them restyles every path, so a shape is
@@ -199,8 +203,23 @@ function svgEl(tag, attrs = {}) {
   return n
 }
 
+const pathEls = (paths) => paths.map((p) => svgEl('path', {
+  d: p.d, fill: p.fill ?? 'none', stroke: p.stroke ?? 'none', 'stroke-width': p.stroke_width ?? 0,
+  'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+}))
+
+// The tool and reach outlive a pad: the shell rebuilds the form now and then
+// (a remote change, a new changeset), and Reshape should still be on after.
+const remembered = { tool: 'draw', reach: REACH.initial }
+
 /**
  * Field widget factory (field-widgets.js).
+ *
+ * In the form the field is a preview of the shape and a button. Drawing
+ * happens on its own screen, fixed over the whole viewport, so nothing
+ * scrolls or zooms under a finger: a top bar (Done, Undo, Redo), the sheet as
+ * large as fits, the tools under it, and a Style tray (symmetry, strokes,
+ * colours, width). On a wide screen the tray sits beside the sheet.
  *
  * @param {object | null | undefined} value  a stored drawing
  * @param {{ container: HTMLElement, onSave: (v: object | null) => void }} ctx
@@ -210,27 +229,39 @@ export function createDrawingPad(value, ctx) {
   let style = styleOf(paths)
   let sym = paths.length && !value?.symmetry ? 'off' : 'fold'
   let closeStrokes = true
-  let tool = 'draw'
-  let reach = REACH.initial
+  let tool = remembered.tool
+  let reach = remembered.reach
+  let trayOpen = false
   const history = []
   let future = []
 
-  // ---- sheet ----
+  // ---- in the form: a preview and a button ----
+  const thumbArt = svgEl('g')
+  const thumb = svgEl('svg', { viewBox: VIEWBOX, class: 'drawing-pad__thumb-svg', 'aria-hidden': 'true' })
+  thumb.append(thumbArt)
+  const thumbEmpty = el('span', { class: 'drawing-pad__thumb-empty' }, 'No shape yet')
+  const thumbBtn = el('button', { type: 'button', class: 'drawing-pad__thumb', 'aria-label': 'Open the drawing' }, thumb, thumbEmpty)
+  const openBtn = el('button', { type: 'button', class: 'btn btn--ghost drawing-pad__open' })
+  const root = el('div', { class: 'drawing-pad' }, thumbBtn, el('div', { class: 'drawing-pad__open-row' }, openBtn))
+  ctx.container.appendChild(root)
+
+  // ---- the drawing screen ----
   const svg = svgEl('svg', { viewBox: VIEWBOX, class: 'drawing-pad__svg', role: 'img', 'aria-label': 'Drawing area' })
   const axis = svgEl('line', { class: 'drawing-pad__axis', x1: 50, y1: 0, x2: 50, y2: 100 })
   const art = svgEl('g')
   const live = svgEl('path', { fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
   const liveMirror = svgEl('path', { fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
-  const ring = svgEl('circle', { class: 'drawing-pad__ring', r: reach })
-  ring.style.display = 'none'
-  svg.append(axis, art, live, liveMirror, ring)
+  const ring = svgEl('circle', { class: 'drawing-pad__ring', r: reach, cx: 50, cy: 50 })
+  const ringMirror = svgEl('circle', { class: 'drawing-pad__ring drawing-pad__ring--mirror', r: reach, cx: 50, cy: 50 })
+  svg.append(axis, art, live, liveMirror, ringMirror, ring)
   const hint = el('div', { class: 'drawing-pad__hint' })
   const sheet = el('div', { class: 'drawing-pad__sheet' }, svg, hint)
+  const stage = el('div', { class: 'drawing-pad__stage' }, sheet)
 
-  // ---- controls ----
+  const doneBtn = el('button', { type: 'button', class: 'btn btn--primary drawing-pad__done' }, 'Done')
   const undoBtn = el('button', { type: 'button', class: 'btn btn--ghost' }, 'Undo')
   const redoBtn = el('button', { type: 'button', class: 'btn btn--ghost' }, 'Redo')
-  const clearBtn = el('button', { type: 'button', class: 'btn btn--ghost' }, 'Clear')
+  const clearBtn = el('button', { type: 'button', class: 'btn btn--ghost drawing-pad__clear' }, 'Clear')
   let clearArmed = null
 
   const seg = (label, options, get, set) => {
@@ -245,8 +276,8 @@ export function createDrawingPad(value, ctx) {
   }
   const toolSeg = seg('Tool', [
     ['draw', 'Draw', 'Draw new strokes'],
-    ['reshape', 'Reshape', 'Press on the shape and drag: nearby parts follow'],
-  ], () => tool, (k) => { tool = k })
+    ['reshape', 'Reshape', 'Drag on the shape: the parts inside the ring follow'],
+  ], () => tool, (k) => { tool = k; remembered.tool = k; if (k === 'reshape') placeRing() })
   const symSeg = seg('Symmetry', [
     ['fold', 'Fold', 'Draw one side; it joins its mirror as one shape'],
     ['mirror', 'Mirror', 'Every stroke gets a mirrored twin'],
@@ -305,22 +336,69 @@ export function createDrawingPad(value, ctx) {
     type: 'range', min: String(REACH.min), max: String(REACH.max), step: '1',
     class: 'drawing-pad__width', 'aria-label': 'Reach',
   })
-  reachIn.addEventListener('input', () => { reach = Number(reachIn.value); sync() })
+  reachIn.addEventListener('input', () => { setReach(Number(reachIn.value)); sync() })
 
   const label = (text, extra) => el('div', { class: 'drawing-pad__label' }, text, ...(extra ? [extra] : []))
-  const reachGroup = el('div', { class: 'drawing-pad__group' }, label('Reach', reachOut), reachIn)
-  const panel = el('div', { class: 'drawing-pad__controls' },
-    el('div', { class: 'drawing-pad__row' }, undoBtn, redoBtn, clearBtn),
-    label('Tool'), toolSeg.wrap,
+  const reachGroup = el('div', { class: 'drawing-pad__group drawing-pad__reach' },
+    label('Reach · pinch to resize', reachOut), reachIn)
+  const styleBtn = el('button', { type: 'button', class: 'btn btn--ghost drawing-pad__style-btn', 'aria-expanded': 'false' }, 'Style')
+  const tools = el('div', { class: 'drawing-pad__tools' },
+    el('div', { class: 'drawing-pad__tool-row' }, toolSeg.wrap, styleBtn),
     reachGroup,
+  )
+  const tray = el('div', { class: 'drawing-pad__tray' },
     label('Symmetry'), symSeg.wrap,
     label('Each stroke'), closeSeg.wrap,
     label('Fill'), fillRow.row,
     label('Outline'), outlineRow.row,
     label('Outline width', widthOut), widthIn,
+    el('div', { class: 'drawing-pad__row' }, clearBtn),
   )
-  const root = el('div', { class: 'drawing-pad' }, sheet, panel)
-  ctx.container.appendChild(root)
+  const side = el('div', { class: 'drawing-pad__side' }, tools, tray)
+  const bar = el('div', { class: 'drawing-pad__bar' },
+    doneBtn, el('div', { class: 'drawing-pad__title' }, 'Shape'), el('div', { class: 'drawing-pad__row' }, undoBtn, redoBtn))
+  const screen = el('div', { class: 'drawing-pad-screen', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Draw the shape' },
+    bar, stage, side)
+
+  // ---- open and close ----
+  // While the screen is up the page under it neither scrolls nor zooms. iOS
+  // can still start a pinch-zoom from touch events, so a multi-finger
+  // touchmove is stopped too (the tray may scroll with one finger).
+  const stopZoom = (e) => { if (e.touches && e.touches.length > 1) e.preventDefault() }
+  const stopGesture = (e) => e.preventDefault()
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close() }
+    else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); (e.shiftKey ? redo : undo)() }
+  }
+  let opener = null
+  function open() {
+    if (screen.isConnected) return
+    opener = document.activeElement
+    // Put the keyboard away: a field being typed in would keep it up.
+    if (opener && typeof opener.blur === 'function') opener.blur()
+    document.body.appendChild(screen)
+    document.documentElement.classList.add('drawing-pad-open')
+    screen.addEventListener('touchmove', stopZoom, { passive: false })
+    screen.addEventListener('gesturestart', stopGesture)
+    document.addEventListener('keydown', onKey)
+    sync()
+    doneBtn.focus({ preventScroll: true })
+  }
+  function close() {
+    if (!screen.isConnected) return
+    cancelAll()
+    screen.remove()
+    document.documentElement.classList.remove('drawing-pad-open')
+    screen.removeEventListener('touchmove', stopZoom)
+    screen.removeEventListener('gesturestart', stopGesture)
+    document.removeEventListener('keydown', onKey)
+    sync()
+    if (root.isConnected) openBtn.focus({ preventScroll: true })
+  }
+  openBtn.addEventListener('click', open)
+  thumbBtn.addEventListener('click', open)
+  doneBtn.addEventListener('click', close)
+  styleBtn.addEventListener('click', () => { trayOpen = !trayOpen; sync() })
 
   // ---- state changes ----
   function emit() { sync(); ctx.onSave(toValue(paths, sym)) }
@@ -330,38 +408,75 @@ export function createDrawingPad(value, ctx) {
     if (paths.length) commit(applyStyle(paths, style))
     else sync()
   }
+  function setReach(r) { reach = r; remembered.reach = r }
+
+  // The ring shows where a pull takes hold, before a finger is down too: it
+  // sits where the last pull ended (or on the shape), and follows the finger
+  // while pulling, or the mouse while hovering. With symmetry on, a faint twin
+  // shows the mirrored side that moves with it.
+  let ringAt = null
+  function placeRing(at) {
+    if (at) ringAt = at
+    if (!ringAt) ringAt = shapeCentre()
+    ring.setAttribute('cx', String(r1(ringAt.x)))
+    ring.setAttribute('cy', String(r1(ringAt.y)))
+    ringMirror.setAttribute('cx', String(r1(100 - ringAt.x)))
+    ringMirror.setAttribute('cy', String(r1(ringAt.y)))
+  }
+  function shapeCentre() {
+    // The middle of the right-hand half, where a pull on a folded shape usually starts.
+    try {
+      const b = art.getBBox?.()
+      if (b && b.width) return { x: Math.min(95, b.x + b.width * 0.85), y: b.y + b.height / 2 }
+    } catch { /* not laid out */ }
+    return { x: 70, y: 50 }
+  }
 
   function sync() {
-    art.replaceChildren(...paths.map((p) => svgEl('path', {
-      d: p.d, fill: p.fill ?? 'none', stroke: p.stroke ?? 'none', 'stroke-width': p.stroke_width ?? 0,
-      'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-    })))
+    const els = pathEls(paths)
+    art.replaceChildren(...els)
+    thumbArt.replaceChildren(...pathEls(paths))
+    thumb.style.display = paths.length ? '' : 'none'
+    thumbEmpty.hidden = paths.length > 0
+    openBtn.textContent = paths.length ? 'Edit shape' : 'Draw shape'
     axis.style.display = sym === 'off' ? 'none' : ''
+    // Once there is a shape the sheet stays clear: Reshape's ring and the
+    // Reach label say what to do.
     hint.hidden = paths.length > 0
-    hint.textContent = tool === 'reshape' ? 'Press on the shape and drag. Nearby parts follow.'
+    hint.textContent = tool === 'reshape' ? 'Draw something first, then reshape it.'
       : !closeStrokes ? 'Strokes stay open, as lines.'
-      : sym === 'fold' ? 'Draw one side, top to bottom. It folds into one shape.'
-        : 'Draw a loop. It closes and fills when you lift.'
+        : sym === 'fold' ? 'Draw one side, top to bottom. It folds into one shape.'
+          : 'Draw a loop. It closes and fills when you lift.'
     undoBtn.disabled = history.length === 0
     redoBtn.disabled = future.length === 0
+    clearBtn.disabled = paths.length === 0
     toolSeg.update(); symSeg.update(); closeSeg.update(); fillRow.update(); outlineRow.update()
-    sheet.classList.toggle('drawing-pad__sheet--reshape', tool === 'reshape')
-    reachGroup.hidden = tool !== 'reshape'
+    const reshaping = tool === 'reshape'
+    sheet.classList.toggle('drawing-pad__sheet--reshape', reshaping)
+    reachGroup.hidden = !reshaping
+    ring.style.display = reshaping && paths.length ? '' : 'none'
+    ringMirror.style.display = reshaping && paths.length && sym !== 'off' ? '' : 'none'
+    if (reshaping) placeRing()
     reachIn.value = String(reach)
     reachOut.textContent = String(reach)
     ring.setAttribute('r', String(reach))
+    ringMirror.setAttribute('r', String(reach))
     widthIn.value = String(style.width)
     widthOut.textContent = Number(style.width).toFixed(1)
+    screen.classList.toggle('drawing-pad-screen--tray', trayOpen)
+    styleBtn.setAttribute('aria-expanded', String(trayOpen))
   }
 
-  undoBtn.addEventListener('click', () => {
+  function undo() {
     if (!history.length) return
     future.push(JSON.stringify(paths)); paths = JSON.parse(history.pop()); style = styleOf(paths, style); emit()
-  })
-  redoBtn.addEventListener('click', () => {
+  }
+  function redo() {
     if (!future.length) return
     history.push(JSON.stringify(paths)); paths = JSON.parse(future.pop()); style = styleOf(paths, style); emit()
-  })
+  }
+  undoBtn.addEventListener('click', undo)
+  redoBtn.addEventListener('click', redo)
   clearBtn.addEventListener('click', () => {
     if (!paths.length) return
     if (clearArmed) { clearTimeout(clearArmed); clearArmed = null; clearBtn.textContent = 'Clear'; commit([]); return }
@@ -372,7 +487,8 @@ export function createDrawingPad(value, ctx) {
   // ---- pointers: draw, pull, pinch ----
   // `pointers` holds every finger (or pen, or mouse) down on the sheet. One
   // pointer draws a stroke or pulls the shape; a second cancels that, and in
-  // Reshape the two pinch the reach.
+  // Reshape the two pinch the reach. Once both are up (or one lifts), the
+  // next single finger draws or pulls again.
   const pointers = new Map()
   let pts = null    // the stroke being drawn
   let grab = null   // { g, from } while pulling
@@ -380,11 +496,6 @@ export function createDrawingPad(value, ctx) {
   const toPoint = (e) => {
     const r = svg.getBoundingClientRect()
     return { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }
-  }
-  const showRing = (at) => {
-    ring.setAttribute('cx', String(at.x))
-    ring.setAttribute('cy', String(at.y))
-    ring.style.display = ''
   }
   const pinchState = () => {
     const [a, b] = [...pointers.values()]
@@ -402,6 +513,7 @@ export function createDrawingPad(value, ctx) {
     sheet.classList.remove('drawing-pad__sheet--grabbing')
     sync()
   }
+  const cancelAll = () => { cancelStroke(); cancelGrab(); pinch = null; pointers.clear() }
 
   sheet.addEventListener('pointerdown', (e) => {
     if (e.button > 0) return
@@ -415,7 +527,7 @@ export function createDrawingPad(value, ctx) {
       if (tool === 'reshape') {
         const { dist, mid } = pinchState()
         pinch = { dist: Math.max(dist, 1), reach }
-        showRing(mid)
+        placeRing(mid)
       }
       return
     }
@@ -423,7 +535,7 @@ export function createDrawingPad(value, ctx) {
     if (tool === 'reshape') {
       if (!paths.length) return
       grab = { g: toPoint(e), from: paths.map((p) => ({ ...p })) }
-      showRing(grab.g)
+      placeRing(grab.g)
       sheet.classList.add('drawing-pad__sheet--grabbing')
       return
     }
@@ -434,18 +546,23 @@ export function createDrawingPad(value, ctx) {
     }
   })
   sheet.addEventListener('pointermove', (e) => {
-    if (!pointers.has(e.pointerId)) return
+    if (!pointers.has(e.pointerId)) {
+      // A mouse hovering in Reshape carries the ring, so you see the reach before pressing.
+      if (tool === 'reshape' && e.pointerType === 'mouse' && !e.buttons && paths.length) placeRing(toPoint(e))
+      return
+    }
     pointers.set(e.pointerId, toPoint(e))
     if (pinch && pointers.size === 2) {
       const { dist, mid } = pinchState()
-      reach = Math.round(Math.min(REACH.max, Math.max(REACH.min, pinch.reach * (dist / pinch.dist))))
-      showRing(mid)
+      setReach(Math.round(Math.min(REACH.max, Math.max(REACH.min, pinch.reach * (dist / pinch.dist)))))
+      placeRing(mid)
       sync()
       return
     }
     if (grab) {
       const c = toPoint(e)
       paths = warp(grab.from, grab.g, c.x - grab.g.x, c.y - grab.g.y, reach, sym)
+      placeRing(c)
       sync()
       return
     }
@@ -455,18 +572,20 @@ export function createDrawingPad(value, ctx) {
     live.setAttribute('d', smoothPath(pts, false))
     liveMirror.setAttribute('d', sym === 'off' ? '' : smoothPath(mirrorPoints(pts), false))
   })
-  const finish = (e) => {
+  sheet.addEventListener('pointerup', (e) => {
     if (!pointers.delete(e.pointerId)) return
     if (pinch) {
-      if (pointers.size === 0) { pinch = null; ring.style.display = 'none' }
+      // Lifting either finger ends the pinch; the other does nothing until it lifts too.
+      pinch = null
       return
     }
+    if (pointers.size) return
     if (grab) {
       const { from } = grab
       grab = null
-      ring.style.display = 'none'
       sheet.classList.remove('drawing-pad__sheet--grabbing')
       if (JSON.stringify(paths) !== JSON.stringify(from)) { history.push(JSON.stringify(from)); future = []; emit() }
+      else sync()
       return
     }
     if (!pts) return
@@ -475,9 +594,14 @@ export function createDrawingPad(value, ctx) {
     if (drawn.length < 3) return
     const added = strokeToPaths(drawn, sym, closeStrokes)
     if (added.length) commit(applyStyle([...paths, ...added.map((d) => ({ d }))], style))
-  }
-  sheet.addEventListener('pointerup', finish)
-  sheet.addEventListener('pointercancel', finish)
+  })
+  // The browser took the gesture (a system swipe, say): drop it, never half-save it.
+  sheet.addEventListener('pointercancel', (e) => {
+    if (!pointers.delete(e.pointerId)) return
+    pinch = null
+    cancelStroke()
+    cancelGrab()
+  })
 
   sync()
   return root
